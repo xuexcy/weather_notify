@@ -29,9 +29,9 @@
 不依赖 1Panel / cron / 任何外部定时器。
 
 用法：
-    python3 server.py                # 端口取 conf/config.json 的 server.port，缺省 18770
-    python3 server.py --port 9000
-    python3 server.py --no-geoip     # 启动时不按 IP 自动定位
+    python3 src/server.py               # 端口取 conf/config.json 的 server.port，缺省 18770
+    python3 src/server.py --port 9000   # 临时换端口，不写配置
+    python3 src/server.py --no-geoip    # 启动时不按 IP 自动定位
 """
 import argparse
 import json
@@ -56,7 +56,8 @@ import main as core
 import pusher
 from qweather import QWeatherError
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# 静态页面在项目根目录的 web/（代码在 src/，所以用 config_loader 算好的根目录）
+BASE_DIR = config_loader.ROOT_DIR
 WEB_DIR = os.path.join(BASE_DIR, "web")
 
 logging.basicConfig(level=logging.INFO,

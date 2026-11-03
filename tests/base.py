@@ -6,8 +6,10 @@ import unittest
 from unittest import mock
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if BASE_DIR not in sys.path:
-    sys.path.insert(0, BASE_DIR)
+SRC_DIR = os.path.join(BASE_DIR, "src")
+for _p in (SRC_DIR, BASE_DIR):          # 代码在 src/ 下，测试从两层都能导入
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import config_loader
 

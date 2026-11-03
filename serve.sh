@@ -6,7 +6,7 @@
 # macOS 会自动打开浏览器；Linux/NAS 无桌面，不加 --open。
 cd "$(dirname "$0")" || exit 1
 if [ "$(uname)" = "Darwin" ]; then
-  exec .venv/bin/python server.py "$@" --open
+  exec .venv/bin/python src/server.py "$@" --open
 else
-  exec .venv/bin/python server.py "$@"
+  exec .venv/bin/python src/server.py "$@"
 fi

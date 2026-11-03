@@ -13,7 +13,13 @@ import re
 import secrets
 from datetime import datetime
 
-CONF_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "conf")
+# 代码放在 src/ 下，而 conf/（含凭据与私钥）、web/、logs/ 都在项目根目录，
+# 所以根目录要往上跳一层；直接在根目录跑（不经过 src/）时保持原样。
+SRC_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = (os.path.dirname(SRC_DIR) if os.path.basename(SRC_DIR) == "src"
+            else SRC_DIR)
+
+CONF_DIR = os.path.join(ROOT_DIR, "conf")
 CONF_FILE = os.path.join(CONF_DIR, "config.json")
 KEY_FILE = os.path.join(CONF_DIR, "ed25519-private.pem")
 PUB_FILE = os.path.join(CONF_DIR, "ed25519-public.pem")

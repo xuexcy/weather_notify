@@ -5,8 +5,8 @@
 单次手动调试，不参与定时、不需要配 cron / 1Panel。
 
 用法：
-    python3 main.py            # 单次调试：日常播报（实况 + 空气 + 逐小时 + 生活指数 + 预警）
-    python3 main.py --warning  # 单次调试：检查一次预警，只有新预警才推送
+    python3 src/main.py            # 单次调试：日常播报（实况 + 空气 + 逐小时 + 生活指数 + 预警）
+    python3 src/main.py --warning  # 单次调试：检查一次预警，只有新预警才推送
 """
 import json
 import logging
@@ -23,7 +23,7 @@ import openmeteo
 import pusher
 from qweather import QWeatherClient, QWeatherError
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = config_loader.ROOT_DIR          # 代码在 src/，logs/ 在项目根目录
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 ALERT_STATE = os.path.join(config_loader.CONF_DIR, "alert_state.json")
 LAST_RUN = os.path.join(config_loader.CONF_DIR, "last_run.json")
