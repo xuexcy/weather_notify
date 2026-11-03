@@ -45,7 +45,11 @@ fpk/
 - **数据目录**：`cmd/main` 给服务设置 `WEATHER_NOTIFY_DATA_DIR=$TRIM_PKGVAR`，
   于是 `conf/`（config.json、Ed25519 私钥、状态文件）和 `logs/` 都落在
   `/vol*/@appdata/weathernotify/`——这个目录**升级和卸载都会保留**。
-- **端口**：manifest `service_port=18770` + `checkport=true`，安装时 fnOS 会检查占用。
+- **端口**：manifest `service_port=18770`，同时 `checkport=false`（关掉系统的端口检查），
+  改由 `cmd/install_init` 自己查：端口空闲或占用者就是本应用的旧进程（覆盖安装/升级）时放行，
+  被**其他**程序占用时写 `$TRIM_TEMP_LOGFILE` 并 `exit 1` 中止安装。
+  之所以不用 `checkport=true`：系统级检查分不清“被别的程序占着”和“被本应用旧版本占着”，
+  后者在升级时是正常状态，却会一律拦下，逼用户先手动停应用。
 - **启动参数**：`--host 0.0.0.0 --port $TRIM_SERVICE_PORT`，命令行参数优先于配置文件。
 - **进程身份**：`run-as: package`，以 `weathernotify` 专属用户运行，无需 root。
 
@@ -86,7 +90,7 @@ Mac 上想检查组装结果可以 `SKIP_PACK=1 ./build-fpk.sh`（不调用 fnpa
 - **安装**：应用中心 → 设置 → 手动安装 → 选 fpk。**先看设备架构**：
   Intel/AMD 的 NAS 用 `weathernotify_<版本>.fpk`，RK3588/树莓派等 ARM 设备用
   `weathernotify_<版本>_arm.fpk`（选错会被应用中心以架构不符拒绝）。
-  安装前先停掉手动部署的旧进程（占用 18770 会因 `checkport` 装不进去）。
+  只有端口被**其他程序**占着时安装才会中止（提示里会打出占用进程）。
 - **升级**：应用中心里直接更新（或再手动装一次高版本 fpk）。流程是
   `upgrade_init`（停进程）→ 替换 target → `upgrade_callback`（修数据目录权限），
   `conf/` 原地保留。

@@ -1,4 +1,45 @@
 #!/bin/bash
-# 安装前：无前置动作（端口检查由 manifest 的 checkport 负责）
+# 安装前：端口自检
+#
+# 为什么不用 manifest 的 checkport = true：
+#   系统级端口检查不区分「端口被别的程序占着」和「端口被本应用的旧版本占着」。
+#   后者在覆盖安装 / 升级时是完全正常的，但 checkport=true 会一律拦下，
+#   导致「想更新就得先手动停应用」。这里改为自己查，只拦真正的外部冲突。
+#
+# 规则：18770 被非本应用进程占用 → 安装失败并提示；被本应用旧进程占用 → 放行。
 set -u
-exit 0
+
+PORT="${TRIM_SERVICE_PORT:-18770}"
+LOG_TARGET="${TRIM_TEMP_LOGFILE:-/dev/null}"
+
+note() {
+    printf '%s\n' "$1" > "${LOG_TARGET}" 2>/dev/null || true
+}
+
+command -v ss >/dev/null 2>&1 || exit 0
+
+line=$(ss -lntp 2>/dev/null | grep -E "[:.]${PORT}[[:space:]]" | head -n 1)
+[ -n "${line}" ] || exit 0
+
+pid=$(printf '%s' "${line}" | grep -oE 'pid=[0-9]+' | head -n 1 | cut -d= -f2)
+
+# 拿不到进程信息（权限不足等）时不拦：升级流程后面会先停应用，误拦的代价更大
+if [ -z "${pid}" ] || [ ! -r "/proc/${pid}/cmdline" ]; then
+    note "端口 ${PORT} 已被占用，但无法确认占用者；如安装后无法启动，请检查该端口。"
+    exit 0
+fi
+
+cmd=$(tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null | sed 's/[[:space:]]*$//')
+
+# 本应用的旧版本（覆盖安装 / 升级）：放行，升级流程会先把它停掉
+case "${cmd}" in
+    *"@appcenter/weathernotify/"* | *"weathernotify/src/server.py"*)
+        exit 0
+        ;;
+esac
+
+note "端口 ${PORT} 已被其他程序占用，本次安装已中止：
+${cmd}（pid ${pid}）
+
+请先停止该进程（或把本应用换到空闲端口）再安装。"
+exit 1
