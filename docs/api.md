@@ -21,6 +21,7 @@
 | POST | `/api/test` | ✅ | 测试推送：**连发两条** —— 日常播报（真实天气）+ 天气预警（示例预警），都带「🧪 测试」前缀；**只发勾了「测试」用途的通道**（`roles` 含 `test`），只勾正式的通道一条都不碰；不要求和风凭据（无 key 时走 Open-Meteo） |
 | POST | `/api/test-channel` | ✅ | 单通道连通性测试：只发一条极简「🧪 连通性测试」消息（不取天气、不渲染模板），走该通道自己的地址。body `{id, config}`，按通道 id 匹配（优先用页面提交的凭据，未保存也能测） |
 | POST | `/api/test-qweather` | ✅ | 和风 API 连通性测试：真实调用一次 GeoAPI，同时验证 API Host、项目 ID、凭据 ID 与 Ed25519 私钥。body `{config}` 优先用页面提交的未保存凭据 |
+| POST | `/api/qweather/key` | ✅ | 生成 / 替换和风 Ed25519 密钥对（写 `conf/` 下两个 pem）。body `{action}`：`generate` 现场生成一对；`replace` 用 `{private_key}` 粘贴的私钥（PEM 或 ssh-keygen 格式），公钥由私钥推导。旧私钥自动备份，响应只含公钥不含私钥 |
 | POST | `/api/channel/add` | ✅ | 添加通道实例：body `{type, roles?}`（`type`: `wecom` \| `magicpush`；`roles` 可选，默认 `["prod"]`），往 `push.channels` 追加一项并默认启用，同类可加多个、名称自动去重；用途（正式/测试，可同时勾）添加后在卡片上改 |
 | POST | `/api/channel/remove` | ✅ | 删除通道实例：body `{id}`，从 `push.channels` 移除（凭据一并丢弃），并把 id 记进删除墓碑 `push.removed`，防止旧快照保存时把通道写回 |
 | POST | `/api/run` | ✅ | 立即播报（拉天气 + 推送）。设置页「定时播报 → 立即播报一次」有按钮，也可 curl 触发 |

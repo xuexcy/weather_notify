@@ -793,6 +793,148 @@ def load_public_key() -> str:
         return ""
 
 
+# ---- Ed25519 密钥对：设置页里生成 / 替换，不再要求用户敲 openssl ----
+
+def _crypto():
+    """按需导入 cryptography。
+
+    放在函数里而不是模块顶层：没装这个库时（或旧环境）读配置、走
+    Open-Meteo 兜底都不受影响，只有真正要生成/解析密钥时才报错。
+    """
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    return serialization, Ed25519PrivateKey
+
+
+def _as_pem(serialization, key, private: bool) -> str:
+    """统一序列化成 PEM：私钥 PKCS#8、公钥 SubjectPublicKeyInfo。
+
+    与 `openssl genpkey -algorithm ED25519` / `openssl pkey -pubout` 的输出
+    格式一致，这样用户拿去和风控制台粘贴、或换回命令行工具都通用。
+    """
+    if private:
+        return key.private_bytes(serialization.Encoding.PEM,
+                                 serialization.PrivateFormat.PKCS8,
+                                 serialization.NoEncryption()).decode()
+    return key.public_key().public_bytes(
+        serialization.Encoding.PEM,
+        serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+
+
+def load_any_private_key(text: str):
+    """把用户粘贴的私钥文本解析成 Ed25519 私钥对象。
+
+    认两种常见格式：
+      · PEM（-----BEGIN PRIVATE KEY-----，和风控制台 / openssl 产出的）
+      · OpenSSH（-----BEGIN OPENSSH PRIVATE KEY-----，ssh-keygen -t ed25519 产出的）
+    其余类型（RSA / EC）明确报错 —— 和风 JWT 只接受 Ed25519。
+    """
+    serialization, Ed25519PrivateKey = _crypto()
+    text = str(text or "").strip()
+    if not text:
+        raise ValueError("私钥内容为空")
+    data = (text + "\n").encode()
+
+    loaders = [serialization.load_pem_private_key]
+    if hasattr(serialization, "load_ssh_private_key"):
+        loaders.append(serialization.load_ssh_private_key)
+
+    key = None
+    for loader in loaders:
+        try:
+            key = loader(data, password=None)
+            break
+        except Exception:
+            continue
+    if key is None:
+        raise ValueError("无法识别这段私钥：请粘贴「-----BEGIN PRIVATE KEY-----」"
+                         "开头的 PEM 全文，或 ssh-keygen 生成的私钥全文")
+    if not isinstance(key, Ed25519PrivateKey):
+        raise ValueError("这不是 Ed25519 私钥：和风 JWT 凭据只支持 Ed25519 密钥对")
+    return key
+
+
+def generate_keypair() -> tuple:
+    """现场生成一对 Ed25519 密钥，返回 (私钥 PEM, 公钥 PEM)，不落盘。"""
+    serialization, Ed25519PrivateKey = _crypto()
+    key = Ed25519PrivateKey.generate()
+    return _as_pem(serialization, key, True), _as_pem(serialization, key, False)
+
+
+def public_from_private(priv_text: str) -> tuple:
+    """校验私钥并算出对应公钥，返回 (规范化私钥 PEM, 公钥 PEM)。
+
+    公钥一律由私钥推导，而不是让用户分开填两段 —— 两份对不上是最常见的
+    「配好了却一直 401」原因。
+    """
+    serialization, _ = _crypto()
+    key = load_any_private_key(priv_text)
+    return _as_pem(serialization, key, True), _as_pem(serialization, key, False)
+
+
+def _write_text(path: str, text: str, mode: int) -> None:
+    """先写临时文件再改名：写到一半断电也不会留下半截密钥。"""
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text if text.endswith("\n") else text + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
+
+
+def save_keypair(priv_pem: str, pub_pem: str) -> str:
+    """写入密钥对，返回旧私钥的备份路径（原本没有私钥时返回空串）。
+
+    换密钥意味着和风控制台里的旧公钥立刻作废，所以先把旧私钥另存一份，
+    万一传错还能换回来。
+    """
+    os.makedirs(CONF_DIR, exist_ok=True)
+    backup = ""
+    if os.path.exists(KEY_FILE):
+        backup = f"{KEY_FILE}.bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        os.replace(KEY_FILE, backup)
+    _write_text(KEY_FILE, priv_pem, 0o600)
+    _write_text(PUB_FILE, pub_pem, 0o644)
+    return backup
+
+
+def ensure_public_key() -> str:
+    """启动兜底：私钥在、公钥缺失或与私钥不匹配时，按私钥重算公钥。
+
+    返回一句日志文案，无需处理时返回空串。这样只拷了私钥过来的用户
+    （或者手动改过私钥的）也能在设置页直接看到可粘贴的公钥。
+    """
+    if not os.path.exists(KEY_FILE):
+        return ""
+    try:
+        _priv, pub = public_from_private(load_private_key())
+    except (ValueError, OSError) as e:
+        return f"私钥无法解析（{e}），请在设置页「天气数据」重新生成或替换"
+    current = load_public_key()
+    if current == pub.strip():
+        return ""
+    try:
+        _write_text(PUB_FILE, pub, 0o644)
+    except OSError as e:
+        return f"公钥写入失败：{e}"
+    return ("已按私钥自动生成公钥 ed25519-public.pem" if not current
+            else "公钥与私钥不匹配，已按私钥重新生成")
+
+
+def key_info() -> dict:
+    """密钥区展示用：有没有私钥、公钥文本、生成时间。"""
+    exists = os.path.exists(KEY_FILE)
+    info = {"exists": exists, "public_key": load_public_key(), "created_at": ""}
+    if exists:
+        try:
+            info["created_at"] = datetime.fromtimestamp(
+                os.path.getmtime(KEY_FILE)).strftime("%Y-%m-%d %H:%M")
+        except OSError:
+            pass
+    return info
+
+
 def _deep_merge(base: dict, override: dict) -> dict:
     out = dict(base)
     for k, v in (override or {}).items():

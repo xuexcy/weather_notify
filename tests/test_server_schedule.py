@@ -12,7 +12,7 @@ from datetime import datetime
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from base import BASE_DIR  # noqa: E402
+from base import BASE_DIR, TempConfCase  # noqa: E402
 
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
@@ -350,6 +350,73 @@ class WarningTickTest(unittest.TestCase):
         saved, th = self._fire(now, self.SCH, {"warning_last_at": "garbage"})
         self.assertTrue(th.called)
         self.assertEqual(saved[-1]["warning_last_at"], "2026-11-02 12:00:00")
+
+
+class QWeatherKeyEndpointTest(TempConfCase):
+    """POST /api/qweather/key：生成 / 替换和风密钥对。"""
+
+    @staticmethod
+    def _handler():
+        h = object.__new__(server.Handler)
+        out = {}
+        h._json = lambda payload: out.update(payload=payload)
+        return h, out
+
+    def setUp(self):
+        super().setUp()
+        # build_status 会拉天气/定位等重对象，这里只关心密钥，stub 掉
+        p = mock.patch.object(server, "build_status", lambda: {"stub": True})
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_generate(self):
+        h, out = self._handler()
+        h._qweather_key({"action": "generate"})
+        r = out["payload"]
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["action"], "generate")
+        self.assertIn("BEGIN PUBLIC KEY", r["key"]["public_key"])
+        self.assertTrue(os.path.exists(config_loader.KEY_FILE))
+        # 私钥永不回显
+        self.assertNotIn("PRIVATE KEY", json.dumps(r))
+
+    def test_replace_with_own_key(self):
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        key = Ed25519PrivateKey.generate()
+        pem = key.private_bytes(serialization.Encoding.PEM,
+                                serialization.PrivateFormat.PKCS8,
+                                serialization.NoEncryption()).decode()
+        h, out = self._handler()
+        h._qweather_key({"action": "replace", "private_key": pem})
+        r = out["payload"]
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["key"]["public_key"].strip(),
+                         key.public_key().public_bytes(
+                             serialization.Encoding.PEM,
+                             serialization.PublicFormat.SubjectPublicKeyInfo).decode().strip())
+
+    def test_replace_rejects_garbage(self):
+        h, out = self._handler()
+        h._qweather_key({"action": "replace", "private_key": "nope"})
+        self.assertFalse(out["payload"]["ok"])
+        self.assertIn("私钥", out["payload"]["error"])
+
+    def test_unknown_action(self):
+        h, out = self._handler()
+        h._qweather_key({"action": "hack"})
+        self.assertFalse(out["payload"]["ok"])
+        self.assertIn("未知操作", out["payload"]["error"])
+
+    def test_regenerate_keeps_backup(self):
+        h, out = self._handler()
+        h._qweather_key({"action": "generate"})
+        self.assertEqual(out["payload"]["backup"], "")       # 第一次无旧私钥
+        h._qweather_key({"action": "generate"})
+        backup = out["payload"]["backup"]
+        self.assertIn(".pem.bak_", backup)                   # 旧私钥另存为备份
+        self.assertTrue(os.path.exists(os.path.join(config_loader.CONF_DIR,
+                                                    backup)))
 
 
 if __name__ == "__main__":

@@ -247,13 +247,36 @@
     </div>
 
     <div class="keybox">
-      <span id="keyBadge" class="badge no">私钥未检测</span>
+      <div class="keybox-row">
+        <span id="keyBadge" class="badge no">私钥未检测</span>
+        <span id="keyMeta" class="keybox-meta"></span>
+        <span class="keybox-btns">
+          <button class="small" id="copyPub" type="button"
+                  title="复制公钥，粘贴到和风控制台创建 JWT 凭据处">复制公钥</button>
+          <button class="small" id="keyGen" type="button"
+                  title="生成一对新的 Ed25519 密钥（会替换现有私钥，旧的在控制台随即失效）">生成密钥对</button>
+          <button class="small" id="keyReplace" type="button"
+                  title="已经有私钥？粘贴私钥全文，公钥会自动算出来">替换私钥</button>
+        </span>
+      </div>
       <pre id="pubKey">（未生成）</pre>
-      <button class="small" id="copyPub" type="button">复制公钥</button>
+      <div class="keybox-import hidden" id="keyImport">
+        <textarea id="keyText" rows="5" spellcheck="false" autocomplete="off"
+                  aria-label="私钥内容"
+                  placeholder="把私钥全文粘到这里，含 -----BEGIN PRIVATE KEY----- 那几行"></textarea>
+        <div class="keybox-row">
+          <span class="keybox-meta">公钥会由私钥自动推导，不用另外填</span>
+          <span class="keybox-btns">
+            <button class="small" id="keySave" type="button">保存私钥</button>
+            <button class="small" id="keyCancel" type="button">取消</button>
+          </span>
+        </div>
+      </div>
     </div>
     <p class="hint" style="margin:9px 0 0">
-      把公钥上传到和风控制台「创建凭据 → JWT」。私钥存于
-      <code style="font-family:var(--mono)">conf/ed25519-private.pem</code>，不会被读取展示或上传。
+      点「生成密钥对」即可创建，<b>公钥</b>上传到和风控制台「创建凭据 → JWT」。
+      私钥存于 <code style="font-family:var(--mono)">conf/ed25519-private.pem</code>
+      （权限 600），页面不会读出来展示、也不会外发。换密钥后立即生效，无需重启。
     </p>
     <p class="hint" id="qwTestState" style="margin:6px 0 0">—</p>
   </section>
@@ -909,11 +932,7 @@ function fill(cfg, status){
   renderAddMenu();
 
   if (status){
-    const key = status.key || {};
-    const badge = $("keyBadge");
-    badge.textContent = key.exists ? "私钥已就绪" : "私钥缺失";
-    badge.className = "badge " + (key.exists ? "ok" : "no");
-    $("pubKey").textContent = key.public_key || "（未生成）";
+    renderKey(status.key || {});
 
     const loc = status.location || {};
     const src = {ip: "IP 自动定位", manual: "手动设置"}[loc.source] || "未设置";
@@ -1532,6 +1551,72 @@ $("locList").onclick = e => {
     syncLocState();
   });
 });
+
+/* ---------- 和风密钥：生成 / 替换 ---------- */
+/* 密钥区只展示公钥（私钥永不回显）：有没有私钥、生成时间、公钥文本 */
+function renderKey(key){
+  const has = !!key.exists;
+  const badge = $("keyBadge");
+  badge.textContent = has ? "私钥已就绪" : "私钥未配置";
+  badge.className = "badge " + (has ? "ok" : "no");
+  $("pubKey").textContent = key.public_key ||
+    "（未生成 —— 点上面的「生成密钥对」创建，公钥随后上传到和风控制台）";
+  $("keyGen").textContent = has ? "重新生成" : "生成密钥对";
+
+  const bits = [];
+  if (has){
+    if (key.created_at) bits.push("生成于 " + key.created_at);
+    if (!key.public_key) bits.push("公钥缺失，重启服务会自动按私钥补齐");
+  } else {
+    bits.push("未配置私钥时走 Open-Meteo，拿不到官方预警");
+  }
+  $("keyMeta").textContent = bits.join(" · ");
+}
+
+$("keyGen").onclick = async () => {
+  const has = $("keyBadge").classList.contains("ok");
+  if (has && !confirm("重新生成会替换现有私钥：\n和风控制台里当前那把公钥随即失效，需要把新公钥重新上传。\n\n继续？")) return;
+  const btn = $("keyGen");
+  btn.disabled = true;
+  try{
+    const r = await api("/api/qweather/key", {action: "generate"});
+    if (!r.ok){ toast(r.error || "生成失败", "err"); return; }
+    renderKey(r.key || {});
+    toast(r.backup
+      ? `已生成新密钥对（旧私钥备份为 ${r.backup}）`
+      : "已生成新密钥对", "ok");
+  }catch(e){ toast("生成失败：" + e.message, "err"); }
+  finally { btn.disabled = false; }
+};
+
+$("keyReplace").onclick = () => {
+  const box = $("keyImport");
+  box.classList.toggle("hidden");
+  if (!box.classList.contains("hidden")) $("keyText").focus();
+};
+
+$("keyCancel").onclick = () => {
+  $("keyText").value = "";
+  $("keyImport").classList.add("hidden");
+};
+
+$("keySave").onclick = async () => {
+  const text = $("keyText").value.trim();
+  if (!text){ toast("先把私钥全文粘进来", "warn"); $("keyText").focus(); return; }
+  const btn = $("keySave");
+  btn.disabled = true;
+  try{
+    const r = await api("/api/qweather/key", {action: "replace", private_key: text});
+    if (!r.ok){ toast(r.error || "保存失败", "err"); return; }
+    $("keyText").value = "";
+    $("keyImport").classList.add("hidden");
+    renderKey(r.key || {});
+    toast(r.backup
+      ? `已替换私钥（旧私钥备份为 ${r.backup}）`
+      : "已保存私钥", "ok");
+  }catch(e){ toast("保存失败：" + e.message, "err"); }
+  finally { btn.disabled = false; }
+};
 
 $("copyPub").onclick = async () => {  const text = $("pubKey").textContent;
   if (!text || text.includes("未生成")){ toast("还没有公钥", "warn"); return; }

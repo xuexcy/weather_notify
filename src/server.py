@@ -18,6 +18,7 @@
     /api/test    测试推送：发两条（日常播报走真实天气 + 天气预警走示例预警）
     /api/test-channel 单通道连通性测试（发一条极简消息）
     /api/test-qweather 和风 API 连通性测试（真实调用一次 GeoAPI）
+    /api/qweather/key   生成 / 替换和风 Ed25519 密钥对（公钥由私钥推导）
     /api/channel/add    添加推送通道实例（企业微信 / MagicPush，可同类多个）
     /api/channel/remove 删除推送通道实例（按 id，凭据一并丢弃）
     /api/run     立即播报（拉天气 + 推送）
@@ -82,7 +83,7 @@ PROTECTED_GET = frozenset({
 })
 PROTECTED_POST = frozenset({
     "/api/config", "/api/message", "/api/test", "/api/test-channel",
-    "/api/test-qweather",
+    "/api/test-qweather", "/api/qweather/key",
     "/api/channel/add", "/api/channel/remove",
     "/api/run", "/api/run-warning",
     "/api/restart",
@@ -520,7 +521,7 @@ def build_status() -> dict:
         "missing": missing,
         "qweather": {"configured": not missing_qw, "missing": missing_qw,
                      "api_host": str(qw.get("api_host", "")).strip()},
-        "key": {"exists": key_exists, "public_key": config_loader.load_public_key()},
+        "key": config_loader.key_info(),
         "location": loc,
         "channels": channels,
         # 能否拿到天气：和风齐全，或有坐标可走 Open-Meteo 兜底
@@ -746,6 +747,9 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/api/test-qweather":
             self._test_qweather(body)
+
+        elif path == "/api/qweather/key":
+            self._qweather_key(body)
 
         elif path == "/api/channel/add":
             self._channel_add(body)
@@ -988,6 +992,48 @@ class Handler(BaseHTTPRequestHandler):
             return
         log.info("和风 API 测试通过")
         self._json({"ok": True, "detail": detail})
+
+    def _qweather_key(self, body: dict) -> None:
+        """生成 / 替换和风 Ed25519 密钥对（写 conf/ 下的两个 pem）。
+
+        body {action}：
+          generate —— 现场生成一对新密钥（用户在和风控制台创建 JWT 凭据时用）
+          replace  —— 用 body.private_key 里粘贴的私钥，公钥由私钥推导
+
+        换密钥会让控制台里的旧公钥失效，所以旧私钥先备份；公钥永远由私钥
+        算出来，避免用户分开填两段结果对不上（那是「配好了却一直 401」的
+        常见原因）。
+        """
+        action = str(body.get("action") or "generate").strip().lower()
+        try:
+            if action == "replace":
+                priv, pub = config_loader.public_from_private(body.get("private_key") or "")
+            elif action == "generate":
+                priv, pub = config_loader.generate_keypair()
+            else:
+                self._json({"ok": False, "error": f"未知操作：{action}"})
+                return
+        except ValueError as e:
+            self._json({"ok": False, "error": str(e)})
+            return
+        except Exception as e:      # cryptography 缺失等
+            log.error("生成密钥失败: %s", e, exc_info=True)
+            self._json({"ok": False, "error": f"生成密钥失败：{e}"})
+            return
+
+        try:
+            backup = config_loader.save_keypair(priv, pub)
+        except OSError as e:
+            log.error("写入密钥文件失败: %s", e, exc_info=True)
+            self._json({"ok": False, "error": f"写入密钥文件失败：{e}"})
+            return
+
+        log.info("和风密钥对已%s%s", "生成" if action == "generate" else "替换",
+                 f"（旧私钥备份 {os.path.basename(backup)}）" if backup else "")
+        self._json({"ok": True, "action": action,
+                    "backup": os.path.basename(backup) if backup else "",
+                    "key": config_loader.key_info(),
+                    "status": build_status()})
 
     # ---------- 通道添加 / 删除 ----------
     def _channel_add(self, body: dict) -> None:
@@ -1338,6 +1384,9 @@ def main() -> None:
     key_note = config_loader.ensure_key_permissions()
     if key_note:
         log.info(key_note)
+    pub_note = config_loader.ensure_public_key()
+    if pub_note:
+        log.warning(pub_note)
 
     raw_cfg = config_loader.load_raw()
     if not config_loader.auth_enabled(raw_cfg):

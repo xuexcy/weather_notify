@@ -23,7 +23,8 @@
 cd "/vol2/1000/agent沙箱/xuechengyun_project/weather_notify"
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-# 确认 conf/ 下有 config.json 和 ed25519-private.pem（含凭据，权限 600）
+# conf/config.json 首次启动自动生成；私钥可在设置页「天气数据」里生成，
+# 或从旧机器把 conf/ 下的 config.json 和 ed25519-*.pem 拷过来（私钥权限 600）
 .venv/bin/python src/server.py --host 192.168.1.100   # 或写进 conf/config.json 后直接 ./serve.sh
 # 浏览器打开 http://192.168.1.100:18770/settings
 ```

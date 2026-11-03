@@ -590,6 +590,108 @@ class ChannelRemovedTest(TempConfCase):
         self.assertEqual([c["id"] for c in merged_cfg["push"]["channels"]], ["a"])
 
 
+class KeyPairTest(TempConfCase):
+    """设置页生成 / 替换和风 Ed25519 密钥对。"""
+
+    def test_generate_returns_pem_pair(self):
+        priv, pub = config_loader.generate_keypair()
+        self.assertIn("BEGIN PRIVATE KEY", priv)
+        self.assertIn("BEGIN PUBLIC KEY", pub)
+        # 公钥确实由这把私钥推出
+        priv2, pub2 = config_loader.public_from_private(priv)
+        self.assertEqual(pub2.strip(), pub.strip())
+        self.assertEqual(priv2.strip(), priv.strip())   # 规范化后往返一致
+
+    def test_public_from_private_accepts_openssh_format(self):
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        key = Ed25519PrivateKey.generate()
+        ssh_text = key.private_bytes(
+            serialization.Encoding.PEM, serialization.PrivateFormat.OpenSSH,
+            serialization.NoEncryption()).decode()
+        priv, pub = config_loader.public_from_private(ssh_text)
+        # ssh-keygen 私钥进来，出去的是标准 PKCS#8（和 openssl 产物一致）
+        self.assertIn("BEGIN PRIVATE KEY", priv)
+        self.assertIn("BEGIN PUBLIC KEY", pub)
+
+    def test_public_from_private_rejects_bad_input(self):
+        for bad in ("", "   ", "hello", "-----BEGIN PRIVATE KEY-----\nabc\n"):
+            with self.assertRaises(ValueError):
+                config_loader.public_from_private(bad)
+
+    def test_public_from_private_rejects_non_ed25519(self):
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        pem = key.private_bytes(serialization.Encoding.PEM,
+                                serialization.PrivateFormat.PKCS8,
+                                serialization.NoEncryption()).decode()
+        with self.assertRaises(ValueError) as ctx:
+            config_loader.public_from_private(pem)
+        self.assertIn("Ed25519", str(ctx.exception))
+
+    def test_generated_key_signs_jwt(self):
+        # 生成出的密钥对要能走真实的 JWT 签名路径（和风客户端用公钥可验签）
+        import base64
+        from cryptography.hazmat.primitives import serialization
+        from qweather import QWeatherClient
+        priv, pub = config_loader.generate_keypair()
+        client = QWeatherClient("h.example.com", "proj", "kid", priv)
+        h64, p64, s64 = client._make_jwt().split(".")
+        pub_key = serialization.load_pem_public_key(pub.encode())
+        pub_key.verify(                          # verify(签名, 被签数据)
+            base64.urlsafe_b64decode(s64 + "=" * (-len(s64) % 4)),
+            f"{h64}.{p64}".encode())
+
+    def test_save_keypair_writes_with_backup_and_perms(self):
+        priv1, pub1 = config_loader.generate_keypair()
+        self.assertEqual(config_loader.save_keypair(priv1, pub1), "")   # 第一次无备份
+        priv2, pub2 = config_loader.generate_keypair()
+        backup = config_loader.save_keypair(priv2, pub2)
+        self.assertTrue(backup.startswith(config_loader.KEY_FILE + ".bak_"))
+        with open(backup, encoding="utf-8") as f:
+            self.assertEqual(f.read().strip(), priv1.strip())           # 旧私钥可找回
+        self.assertEqual(oct(os.stat(config_loader.KEY_FILE).st_mode & 0o777), "0o600")
+        with open(config_loader.KEY_FILE, encoding="utf-8") as f:
+            self.assertEqual(f.read().strip(), priv2.strip())
+        self.assertEqual(config_loader.load_public_key(), pub2.strip())
+
+    def test_ensure_public_key_creates_missing_public(self):
+        priv, pub = config_loader.generate_keypair()
+        config_loader.save_keypair(priv, pub)
+        os.remove(config_loader.PUB_FILE)
+        note = config_loader.ensure_public_key()
+        self.assertIn("自动生成公钥", note)
+        self.assertEqual(config_loader.load_public_key(), pub.strip())
+
+    def test_ensure_public_key_fixes_mismatch(self):
+        priv, pub = config_loader.generate_keypair()
+        other_priv, other_pub = config_loader.generate_keypair()
+        config_loader.save_keypair(priv, other_pub)     # 故意配错
+        note = config_loader.ensure_public_key()
+        self.assertIn("重新生成", note)
+        self.assertEqual(config_loader.load_public_key(), pub.strip())
+
+    def test_ensure_public_key_skips_when_consistent(self):
+        priv, pub = config_loader.generate_keypair()
+        config_loader.save_keypair(priv, pub)
+        self.assertEqual(config_loader.ensure_public_key(), "")
+
+    def test_ensure_public_key_without_private(self):
+        self.assertEqual(config_loader.ensure_public_key(), "")
+
+    def test_key_info_shape(self):
+        info = config_loader.key_info()
+        self.assertFalse(info["exists"])
+        self.assertEqual(info["public_key"], "")
+        priv, pub = config_loader.generate_keypair()
+        config_loader.save_keypair(priv, pub)
+        info = config_loader.key_info()
+        self.assertTrue(info["exists"])
+        self.assertEqual(info["public_key"], pub.strip())
+        self.assertRegex(info["created_at"], r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}")
+
+
 if __name__ == "__main__":
     import unittest
     unittest.main()
