@@ -6,6 +6,7 @@
 import base64
 import json
 import logging
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -70,6 +71,8 @@ class QWeatherClient:
         self._key = key
         self._jwt = ""
         self._jwt_exp = 0
+        # 并发取数时多个线程会同时进 _token()，加锁避免重复签名、写乱 _jwt_exp
+        self._jwt_lock = threading.Lock()
 
     def _make_jwt(self) -> str:
         header = {"alg": "EdDSA", "kid": self.credential_id}
@@ -82,10 +85,11 @@ class QWeatherClient:
         return f"{signing_input}.{_b64url(sig)}"
 
     def _token(self) -> str:
-        if not self._jwt or time.time() > self._jwt_exp - 60:
-            self._jwt = self._make_jwt()
-            self._jwt_exp = time.time() + 900
-        return self._jwt
+        with self._jwt_lock:
+            if not self._jwt or time.time() > self._jwt_exp - 60:
+                self._jwt = self._make_jwt()
+                self._jwt_exp = time.time() + 900
+            return self._jwt
 
     def _get(self, path: str, params: dict, legacy: bool = True) -> dict:
         """legacy=True 的老接口（/v7/*）用 body 里的 code 判成败；

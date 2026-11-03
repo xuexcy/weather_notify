@@ -13,6 +13,7 @@ import logging
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -342,54 +343,93 @@ def _week_label(date_str: str) -> str:
         return ""
 
 
+# 和风这 7 个接口彼此独立，串行发要 7×330ms≈2.3s；并发后整轮≈单次耗时。
+# 4 并发：7 个请求分两批走完（约 0.7s），不至于瞬间打出 7 条连接。
+QW_MAX_WORKERS = 4
+
+
 def _fetch_qweather(cfg: dict, key_pem: str, hours: int) -> dict:
-    """和风：实况 + 逐小时 + 逐日 + 空气 + 生活指数 + 官方预警。"""
+    """和风：实况 + 逐小时 + 逐日 + 空气 + 生活指数 + 官方预警（并发请求）。
+
+    任何单个接口失败都不影响其余数据：实况失败才算致命（页面没主角），
+    其余按空值处理，与原串行实现的行为保持一致。
+    """
     client = _client(cfg, key_pem)
     location = cfg["location"]
     # 空气与预警只有新版 /v1/ 接口，必须用经纬度（老 /v7/air|warning 已废弃）
     pair = coords(cfg)
+    if not pair:
+        log.warning("城市不是「经度,纬度」且没有定位坐标，跳过天气预警与空气质量"
+                    "（请在设置页点「按 IP 重新定位」）")
+
+    def call(fn):
+        """返回 (是否成功, 结果或异常)：异常留在结果里，便于区分致命与可降级。"""
+        try:
+            return True, fn()
+        except QWeatherError as e:
+            return False, e
+
+    tasks = {
+        "now": lambda: client.weather_now(location),
+        "hourly": lambda: client.weather_24h(location),
+        "daily": lambda: client.weather_days(location, cfg.get("forecast_days", 7)),
+        "indices": lambda: client.indices_1d(location, cfg["indices_types"]),
+    }
+    if pair:
+        tasks["warning"] = lambda: client.warning_now(pair[0], pair[1])
+        tasks["air_daily"] = lambda: client.air_daily(pair[0], pair[1])
+        tasks["air_now"] = lambda: client.air_now(pair[0], pair[1])
+
+    res: dict = {}
+    with ThreadPoolExecutor(max_workers=QW_MAX_WORKERS,
+                            thread_name_prefix="qw") as pool:
+        futures = {name: pool.submit(call, fn) for name, fn in tasks.items()}
+        for name, fut in futures.items():
+            res[name] = fut.result()
+
+    ok, now = res["now"]
+    if not ok or not now:
+        detail = str(now) if not ok else "返回内容为空"
+        raise QWeatherError(
+            f"获取实况天气失败（检查 API Host / 凭据 / 城市位置）：{detail}")
 
     warnings = []
     if pair:
-        try:
-            warnings = client.warning_now(pair[0], pair[1])
-        except QWeatherError as e:
-            log.warning("获取预警失败: %s", e)
-    else:
-        log.warning("城市不是「经度,纬度」且没有定位坐标，跳过天气预警"
-                    "（请在设置页点「按 IP 重新定位」）")
+        ok, val = res["warning"]
+        if ok:
+            warnings = val
+        else:
+            log.warning("获取预警失败: %s", val)
 
-    now = client.weather_now(location)
-    if not now:
-        raise QWeatherError("获取实况天气失败（检查 API Host / 凭据 / 城市位置）")
-
-    try:
-        hourly_raw = client.weather_24h(location)
-    except QWeatherError as e:
-        log.warning("获取逐小时预报失败: %s", e)
+    ok, hourly_raw = res["hourly"]
+    if not ok:
+        log.warning("获取逐小时预报失败: %s", hourly_raw)
         hourly_raw = []
-    try:
-        daily_raw, day_count = client.weather_days(location,
-                                                   cfg.get("forecast_days", 7))
-    except QWeatherError as e:
-        log.warning("获取逐日预报失败: %s", e)
+
+    ok, daily_pair = res["daily"]
+    if ok:
+        daily_raw, day_count = daily_pair
+    else:
+        log.warning("获取逐日预报失败: %s", daily_pair)
         daily_raw, day_count = [], 0
+
     daily_air = {}
-    if pair:
-        try:
-            daily_air = client.air_daily(pair[0], pair[1])
-        except QWeatherError as e:
-            log.warning("获取逐日空气质量失败: %s", e)
     air_raw = None
     if pair:
-        try:
-            air_raw = client.air_now(pair[0], pair[1])
-        except QWeatherError as e:
-            log.warning("获取空气质量失败: %s", e)
-    try:
-        indices_raw = client.indices_1d(location, cfg["indices_types"])
-    except QWeatherError as e:
-        log.warning("获取生活指数失败: %s", e)
+        ok, val = res["air_daily"]
+        if ok:
+            daily_air = val
+        else:
+            log.warning("获取逐日空气质量失败: %s", val)
+        ok, val = res["air_now"]
+        if ok:
+            air_raw = val
+        else:
+            log.warning("获取空气质量失败: %s", val)
+
+    ok, indices_raw = res["indices"]
+    if not ok:
+        log.warning("获取生活指数失败: %s", indices_raw)
         indices_raw = {}
 
     hourly = []

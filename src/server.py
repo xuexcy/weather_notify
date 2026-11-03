@@ -131,12 +131,49 @@ SAMPLE_WARNING = {
     "text": "预计未来 3 小时降雨量将达 50 毫米以上，请注意防范。",
 }
 
-# 天气数据短暂缓存，避免页面反复刷新把接口额度打满
+# 天气数据缓存（stale-while-revalidate）：
+#   10 分钟内打开页面直接命中，不产生任何上游请求；
+#   超过 10 分钟也先把旧数据给页面（秒开），同时后台刷新；
+#   刷新有 90 秒冷却，多标签页 / 连点刷新只会拉一次。
+#   这样一来「打开页面」几乎不增加和风调用量，但用户永远不用等网络。
 _WEATHER_CACHE: dict = {"key": None, "ts": 0.0, "data": None}
-CACHE_TTL = 60
-# ?fresh=1 强制刷新的全局最小间隔：这个参数不需要登录，不限流能把和风日配额刷光
+_CACHE_LOCK = threading.Lock()
+CACHE_FRESH_TTL = 600
+REFRESH_MIN_GAP = 90
+_REFRESH_LOCK = threading.Lock()
+_REFRESH_STATE = {"ts": 0.0, "running": False}
+# ?fresh=1 强制刷新的全局最小间隔：这个参数不需要登录，不限流能把和风配额刷光
 FORCE_MIN_GAP = 15
 _FORCE_STATE = {"ts": 0.0}
+
+
+def _bg_refresh_weather(cfg: dict, key_pem, cache_key) -> bool:
+    """后台刷新天气缓存；同一时刻只跑一个，失败后 60 秒内不重试。"""
+    now = time.time()
+    with _REFRESH_LOCK:
+        if _REFRESH_STATE["running"] or now - _REFRESH_STATE["ts"] < REFRESH_MIN_GAP:
+            return False
+        _REFRESH_STATE["running"] = True
+        _REFRESH_STATE["ts"] = now
+
+    def run():
+        try:
+            data = core.fetch_weather(cfg, key_pem)
+        except Exception as e:
+            log.warning("后台刷新天气失败: %s", e)
+            with _REFRESH_LOCK:
+                _REFRESH_STATE["running"] = False
+                # 失败后 60 秒内不再重试：页面开着时避免 3 秒一轮地打上游
+                _REFRESH_STATE["ts"] = time.time() - REFRESH_MIN_GAP + 60
+            return
+        with _CACHE_LOCK:
+            _WEATHER_CACHE.update({"key": cache_key, "ts": time.time(), "data": data})
+        log.info("后台刷新天气完成，下一次页面命中新数据")
+        with _REFRESH_LOCK:
+            _REFRESH_STATE["running"] = False
+
+    threading.Thread(target=run, name="weather-refresh", daemon=True).start()
+    return True
 
 # cookie 签名密钥：启动时从配置读/生成，重启后仍是同一把 → 登录状态不丢
 AUTH_SECRET = ""
@@ -775,7 +812,12 @@ class Handler(BaseHTTPRequestHandler):
     # ---------- 天气 ----------
     @staticmethod
     def _cached_weather(cfg: dict, key_pem, force: bool = False):
-        """取天气（60 秒缓存），返回 (weather, cached, error)。
+        """取天气，返回 (weather, cached, error, info)。
+
+        策略（stale-while-revalidate）：
+          * 新鲜（<CACHE_FRESH_TTL）：直接返回缓存，0 请求 0 等待；
+          * 过期但还有缓存：立刻返回旧数据（info.stale=True），后台刷新；
+          * 没有缓存 / force：同步拉一次（并发，约 0.7s）。
 
         缓存键带上会影响返回内容的配置：地点、逐小时条数、逐日天数、生活指数，
         否则改了这些设置会拿回旧的缓存数据。
@@ -785,22 +827,30 @@ class Handler(BaseHTTPRequestHandler):
                      int(cfg.get("forecast_days", 7)),
                      str(cfg.get("indices_types", "")),
                      core.qweather_ready(cfg, key_pem))
-        if (not force and _WEATHER_CACHE["data"]
-                and _WEATHER_CACHE["key"] == cache_key
-                and time.time() - _WEATHER_CACHE["ts"] < CACHE_TTL):
-            return _WEATHER_CACHE["data"], True, ""
+        with _CACHE_LOCK:
+            have = bool(_WEATHER_CACHE["data"]) and _WEATHER_CACHE["key"] == cache_key
+            age = (time.time() - _WEATHER_CACHE["ts"]) if have else -1.0
+            cached_data = _WEATHER_CACHE["data"] if have else None
+
+        if not force and have:
+            if age < CACHE_FRESH_TTL:
+                return cached_data, True, "", {"stale": False, "age": int(age)}
+            _bg_refresh_weather(cfg, key_pem, cache_key)
+            return cached_data, True, "", {"stale": True, "age": int(age)}
+
         try:
             data = core.fetch_weather(cfg, key_pem)
         except QWeatherError as e:
-            return None, False, str(e)
+            return None, False, str(e), {"stale": False, "age": 0}
         except Exception as e:
             log.error("获取天气异常: %s", e, exc_info=True)
-            return None, False, f"执行异常: {e}"
-        _WEATHER_CACHE.update({"key": cache_key, "ts": time.time(), "data": data})
-        return data, False, ""
+            return None, False, f"执行异常: {e}", {"stale": False, "age": 0}
+        with _CACHE_LOCK:
+            _WEATHER_CACHE.update({"key": cache_key, "ts": time.time(), "data": data})
+        return data, False, "", {"stale": False, "age": 0}
 
     def _weather(self, force: bool = False) -> None:
-        # ?fresh=1 不需要登录，全局限一次/15 秒，避免被匿名刷爆和风日配额
+        # ?fresh=1 不需要登录，全局限一次/15 秒，避免被匿名刷爆和风配额
         if force:
             now = time.time()
             if now - _FORCE_STATE["ts"] < FORCE_MIN_GAP:
@@ -810,11 +860,13 @@ class Handler(BaseHTTPRequestHandler):
         cfg = config_loader.merged(config_loader.load_raw())
         key_pem = (config_loader.load_private_key()
                    if os.path.exists(config_loader.KEY_FILE) else None)
-        data, cached, error = self._cached_weather(cfg, key_pem, force)
+        data, cached, error, info = self._cached_weather(cfg, key_pem, force)
         if error:
-            self._json({"ok": False, "weather": None, "cached": False, "error": error})
+            self._json({"ok": False, "weather": None, "cached": False,
+                        "error": error, "stale": False, "age": 0})
             return
-        self._json({"ok": True, "weather": data, "cached": cached, "error": ""})
+        self._json({"ok": True, "weather": data, "cached": cached, "error": "",
+                    "stale": info["stale"], "age": info["age"]})
 
     def _message(self, body: dict) -> None:
         """生成推送消息预览（不推送）。
@@ -845,7 +897,7 @@ class Handler(BaseHTTPRequestHandler):
 
         key_pem = (config_loader.load_private_key()
                    if os.path.exists(config_loader.KEY_FILE) else None)
-        weather, cached, error = self._cached_weather(cfg, key_pem)
+        weather, cached, error, _info = self._cached_weather(cfg, key_pem)
         if error:
             self._json({"ok": False, "error": error, "error_hint": "",
                         "previews": [], "title": "", "body": ""})
@@ -882,7 +934,7 @@ class Handler(BaseHTTPRequestHandler):
 
         key_pem = (config_loader.load_private_key()
                    if os.path.exists(config_loader.KEY_FILE) else None)
-        weather, _cached, werr = self._cached_weather(cfg, key_pem)
+        weather, _cached, werr, _info = self._cached_weather(cfg, key_pem)
         if werr:
             self._json({"ok": False, "channels": [], "errors": [f"取不到天气数据：{werr}"],
                         "messages": []})
