@@ -3,8 +3,7 @@
 和风天气 → 企业微信机器人 / MagicPush 天气提醒，含官方灾害预警。一个进程跑完所有事：
 网页看图、设置凭据、定时播报、预警轮询。
 
-由 [cuijianzhuang/weather_push](https://github.com/cuijianzhuang/weather_push) 裁剪重写：
-仅保留天气功能，删除纪念日 / 恋爱天数 / 彩虹屁 / 一言 / Telegram / 公众号 / 邮件 / WxPusher 等无关模块。
+由 [cuijianzhuang/weather_push](https://github.com/cuijianzhuang/weather_push) 裁剪重写。
 
 ## 特性
 
