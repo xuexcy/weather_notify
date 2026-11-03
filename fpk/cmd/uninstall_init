@@ -1,0 +1,5 @@
+#!/bin/bash
+# 卸载前：先停进程，否则删文件时进程还在跑（会变成孤儿进程占着端口）
+set -u
+"$(dirname "$0")/main" stop >/dev/null 2>&1 || true
+exit 0

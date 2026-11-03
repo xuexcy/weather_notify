@@ -1,0 +1,6 @@
+#!/bin/bash
+# 配置后：重启服务让新配置生效
+set -u
+"$(dirname "$0")/main" stop >/dev/null 2>&1 || true
+"$(dirname "$0")/main" start >/dev/null 2>&1 || true
+exit 0

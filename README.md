@@ -33,6 +33,12 @@ python3 -m venv .venv
 
 > 想先看效果不配凭据也行：没有和风凭据时自动走 Open-Meteo，首页照样有天气（没有官方预警）。
 
+### 飞牛 fnOS 用户
+
+可以装成系统应用（桌面图标、应用中心启停/升级，配置在应用数据目录）：
+在 fnOS 上执行 `./build-fpk.sh` 生成 fpk，应用中心手动安装即可，
+详见 [docs/packaging.md](docs/packaging.md)。
+
 ## 使用方法
 
 设置页从上到下就是配置顺序，改动**失去焦点即自动保存**，无需重启。
@@ -83,8 +89,10 @@ python3 -m venv .venv
 ```
 src/          后端代码（唯一进程 server.py + 天气/推送/配置等模块）
 web/          前端三页：首页、登录、设置（共享 style.css）
-tests/        单元测试（标准库 unittest，166 例）
+tests/        单元测试（标准库 unittest，182 例）
 docs/         实现细节与参考文档
+fpk/          飞牛 fnOS 应用包骨架（manifest、生命周期脚本、图标）
+build-fpk.sh  打包脚本：./build-fpk.sh [版本号] → dist/*.fpk
 conf/         本地配置与私钥（gitignore，不入库）
 logs/         运行日志（gitignore）
 ```
@@ -117,6 +125,7 @@ logs/         运行日志（gitignore）
 | [docs/auth.md](docs/auth.md) | 访问密码实现、受保护接口清单 |
 | [docs/api.md](docs/api.md) | HTTP 接口一览、curl 示例 |
 | [docs/deployment.md](docs/deployment.md) | NAS / 局域网部署、服务启停、git 更新 |
+| [docs/packaging.md](docs/packaging.md) | 打包飞牛 fnOS 应用（fpk）：构建、安装、数据目录、排查 |
 
 ## 测试
 

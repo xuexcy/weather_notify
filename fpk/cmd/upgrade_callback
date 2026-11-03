@@ -1,0 +1,5 @@
+#!/bin/bash
+# 升级后：修正数据目录属主与权限（数据本身不迁移，conf/ 原地保留）
+set -u
+"$(dirname "$0")/install_callback"
+exit 0

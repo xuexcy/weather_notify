@@ -1,0 +1,4 @@
+#!/bin/bash
+# 安装前：无前置动作（端口检查由 manifest 的 checkport 负责）
+set -u
+exit 0

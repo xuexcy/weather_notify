@@ -19,7 +19,14 @@ SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = (os.path.dirname(SRC_DIR) if os.path.basename(SRC_DIR) == "src"
             else SRC_DIR)
 
-CONF_DIR = os.path.join(ROOT_DIR, "conf")
+# 运行期数据目录：默认就是项目根（conf/ 与 logs/ 在根下）。
+# 打包成系统应用（fnOS fpk）时程序目录只读，用 WEATHER_NOTIFY_DATA_DIR 把
+# 数据指到可写分区（fpk 里设为 TRIM_PKGVAR），conf/ 与 logs/ 在其下自动创建。
+# 该变量为空或未设置时行为与原来完全一致。
+DATA_DIR = os.environ.get("WEATHER_NOTIFY_DATA_DIR", "").strip() or ROOT_DIR
+
+CONF_DIR = os.path.join(DATA_DIR, "conf")
+LOG_DIR = os.path.join(DATA_DIR, "logs")
 CONF_FILE = os.path.join(CONF_DIR, "config.json")
 KEY_FILE = os.path.join(CONF_DIR, "ed25519-private.pem")
 PUB_FILE = os.path.join(CONF_DIR, "ed25519-public.pem")

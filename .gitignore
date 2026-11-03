@@ -13,3 +13,6 @@ __pycache__/
 # 本地备份
 *.bak
 *.bak_*
+
+# fpk 构建产物
+dist/

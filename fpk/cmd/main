@@ -1,0 +1,140 @@
+#!/bin/bash
+# weathernotify 生命周期：start / stop / status
+# 约定：start 成功 exit 0；status 运行中 exit 0、未运行 exit 3；出错写 TRIM_TEMP_LOGFILE 后 exit 1
+set -u
+
+APPDEST="${TRIM_APPDEST:-$(cd -P "$(dirname "$0")/.." && pwd)/target}"
+PKGVAR="${TRIM_PKGVAR:-${APPDEST}/../var}"
+PORT="${TRIM_SERVICE_PORT:-18770}"
+BIND_HOST="0.0.0.0"
+
+SRC_DIR="${APPDEST}/src"
+LIB_DIR="${APPDEST}/libs"
+DATA_DIR="${PKGVAR}"
+LOG_DIR="${DATA_DIR}/logs"
+PID_FILE="${PKGVAR}/app.pid"
+SVC_LOG="${LOG_DIR}/service.log"
+
+mkdir -p "${LOG_DIR}" 2>/dev/null || true
+
+log_msg() {
+    printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >> "${SVC_LOG}" 2>/dev/null || true
+}
+
+fail() {
+    log_msg "ERROR: $1"
+    printf '%s\n' "$1" > "${TRIM_TEMP_LOGFILE:-/dev/null}" 2>/dev/null || true
+    exit 1
+}
+
+# 输出正在运行的 pid；未运行时返回 1。
+# 除 kill -0 外再核对 /proc/<pid>/cmdline，避免重启后 pid 被别的进程复用。
+running_pid() {
+    [ -r "${PID_FILE}" ] || return 1
+    local pid
+    pid=$(head -n 1 "${PID_FILE}" 2>/dev/null | tr -d '[:space:]')
+    [ -n "${pid}" ] || return 1
+    kill -0 "${pid}" 2>/dev/null || return 1
+    if [ -r "/proc/${pid}/cmdline" ]; then
+        tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null | grep -q "server.py" || return 1
+    fi
+    printf '%s' "${pid}"
+    return 0
+}
+
+port_listening() {
+    command -v ss >/dev/null 2>&1 || return 0
+    ss -lnt 2>/dev/null | grep -qE "[:.]${PORT}[[:space:]]" || return 1
+}
+
+start() {
+    local pid
+    if pid=$(running_pid); then
+        log_msg "already running (pid=${pid})"
+        return 0
+    fi
+    rm -f "${PID_FILE}"
+
+    [ -f "${SRC_DIR}/server.py" ] || fail "程序文件缺失：${SRC_DIR}/server.py，请重新安装应用"
+    local py="${WEATHER_NOTIFY_PYTHON:-}"
+    if [ -z "${py}" ]; then
+        py=$(command -v python3 2>/dev/null || true)
+    fi
+    [ -n "${py}" ] && [ -x "${py}" ] || fail "未找到 python3，无法启动应用"
+
+    log_msg "start: ${py} ${SRC_DIR}/server.py --host ${BIND_HOST} --port ${PORT}"
+
+    local launch=""
+    command -v setsid >/dev/null 2>&1 && launch="setsid"
+
+    PYTHONPATH="${LIB_DIR}:${SRC_DIR}" \
+    PYTHONUNBUFFERED=1 \
+    WEATHER_NOTIFY_DATA_DIR="${DATA_DIR}" \
+        ${launch} "${py}" "${SRC_DIR}/server.py" \
+        --host "${BIND_HOST}" --port "${PORT}" >> "${SVC_LOG}" 2>&1 &
+    pid=$!
+    printf '%s' "${pid}" > "${PID_FILE}" 2>/dev/null || true
+
+    local i=0
+    while [ "${i}" -lt 20 ]; do
+        sleep 1
+        if ! kill -0 "${pid}" 2>/dev/null; then
+            rm -f "${PID_FILE}"
+            log_msg "start failed, tail of ${SVC_LOG}:"
+            tail -n 15 "${SVC_LOG}" >> "${SVC_LOG}" 2>/dev/null || true
+            fail "应用启动后立即退出，日志见 ${SVC_LOG}"
+        fi
+        if port_listening; then
+            log_msg "started (pid=${pid}, port=${PORT})"
+            return 0
+        fi
+        i=$((i + 1))
+    done
+
+    if kill -0 "${pid}" 2>/dev/null; then
+        log_msg "process alive but port ${PORT} not listening yet (pid=${pid})"
+        return 0
+    fi
+    rm -f "${PID_FILE}"
+    fail "应用启动超时，日志见 ${SVC_LOG}"
+}
+
+stop() {
+    local pid
+    if ! pid=$(running_pid); then
+        rm -f "${PID_FILE}"
+        log_msg "stop: not running"
+        return 0
+    fi
+    log_msg "stop: send TERM to ${pid}"
+    kill -TERM "${pid}" 2>/dev/null
+
+    local i=0
+    while [ "${i}" -lt 15 ]; do
+        kill -0 "${pid}" 2>/dev/null || break
+        sleep 1
+        i=$((i + 1))
+    done
+    if kill -0 "${pid}" 2>/dev/null; then
+        log_msg "stop: still alive, send KILL to ${pid}"
+        kill -KILL "${pid}" 2>/dev/null
+        sleep 1
+    fi
+    rm -f "${PID_FILE}"
+    log_msg "stop: done"
+    return 0
+}
+
+case "${1:-}" in
+    start)   start ;;
+    stop)    stop ;;
+    status)
+        if running_pid >/dev/null; then
+            exit 0
+        fi
+        exit 3
+        ;;
+    *)
+        exit 1
+        ;;
+esac

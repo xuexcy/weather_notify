@@ -24,7 +24,7 @@ import pusher
 from qweather import QWeatherClient, QWeatherError
 
 BASE_DIR = config_loader.ROOT_DIR          # 代码在 src/，logs/ 在项目根目录
-LOG_DIR = os.path.join(BASE_DIR, "logs")
+LOG_DIR = config_loader.LOG_DIR            # fpk 安装时被指到应用数据目录
 ALERT_STATE = os.path.join(config_loader.CONF_DIR, "alert_state.json")
 LAST_RUN = os.path.join(config_loader.CONF_DIR, "last_run.json")
 

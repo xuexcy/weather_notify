@@ -1375,6 +1375,13 @@ def main() -> None:
     ap.add_argument("--no-geoip", action="store_true", help="启动时不按 IP 自动定位")
     args = ap.parse_args()
 
+    # 日志同时落一份文件：作为系统应用运行时标准输出被系统收走，
+    # 排查问题主要看 <数据目录>/logs/weather-notify.log
+    try:
+        core.setup_file_log()
+    except OSError as e:
+        log.warning("无法写入日志文件（%s）：继续用标准输出记录", e)
+
     if not os.path.exists(config_loader.CONF_FILE):
         config_loader.save_raw(config_loader.TEMPLATE)
         log.info("已生成配置模板 %s", config_loader.CONF_FILE)

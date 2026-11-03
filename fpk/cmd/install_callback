@@ -1,0 +1,21 @@
+#!/bin/bash
+# 安装后：准备可写数据目录（存 conf/ 与 logs/），交给应用运行用户。
+# 配置文件本身由服务首次启动时自动生成，这里只保证目录存在且属主正确。
+set -u
+
+PKGVAR="${TRIM_PKGVAR:-/dev/null}"
+RUN_USER="${TRIM_RUN_USERNAME:-${TRIM_USERNAME:-weathernotify}}"
+RUN_GROUP="${TRIM_GROUPNAME:-${RUN_USER}}"
+
+mkdir -p "${PKGVAR}/logs" 2>/dev/null || true
+
+# 配置文件只允许属主读写（里面有 webhook 地址和 Ed25519 私钥）
+chmod 700 "${PKGVAR}/conf" 2>/dev/null || true
+chmod 600 "${PKGVAR}/conf/config.json" 2>/dev/null || true
+chmod 600 "${PKGVAR}/conf/ed25519-private.pem" 2>/dev/null || true
+
+if id "${RUN_USER}" >/dev/null 2>&1; then
+    chown -R "${RUN_USER}:${RUN_GROUP}" "${PKGVAR}" 2>/dev/null || true
+fi
+
+exit 0
