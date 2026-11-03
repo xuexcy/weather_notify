@@ -38,8 +38,8 @@ python3 -m venv .venv
 ### 飞牛 fnOS 用户
 
 可以装成系统应用（桌面图标、应用中心启停/升级，配置在应用数据目录）：
-在 fnOS 上执行 `./build-fpk.sh` 生成 fpk，应用中心手动安装即可，
-详见 [docs/packaging.md](docs/packaging.md)。
+在 fnOS 上执行 `./build-fpk.sh --arch both` 生成 fpk（x86_64 与 ARM64 各一个），
+应用中心手动安装即可，详见 [docs/packaging.md](docs/packaging.md)。
 
 ## 使用方法
 

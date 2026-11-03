@@ -8,8 +8,13 @@
 | 条件 | 说明 |
 |---|---|
 | Linux x86_64 构建机 | 直接用 fnOS NAS 本机最省事（`/usr/local/bin/fnpack` 系统自带） |
-| `python3` + `pip` | fnOS 自带 3.11；依赖 wheel 按构建机的架构/Python 版本解析，**换 CPU 架构或 Python 大版本必须重新打包** |
+| `python3` + `pip` | fnOS 自带 3.11；依赖 wheel 按**目标架构**与 Python 版本解析，**换 Python 大版本必须重新打包** |
 | `fnpack` | 飞牛官方打包工具，NAS 上已预装；下载见 <https://developer.fnnas.com/docs/cli/fnpack> |
+
+x86_64 与 ARM64（aarch64）都可以出包，**构建机本身是 x86 也能出 ARM 包**：
+ARM 包的依赖用 `pip --only-binary --platform manylinux*_aarch64` 交叉下载 wheel，
+只下载解压不编译，所以不需要 ARM 机器或 qemu。但正因如此，**ARM 包无法在 x86 机器上实测运行**，
+只能做架构静态校验（`file *.so` 看是否 aarch64）。
 
 ## 包目录结构
 
@@ -49,21 +54,39 @@ fpk/
 ```bash
 # 在 NAS 上（项目目录随便放，下面以沙箱目录为例）
 cd /vol2/1000/agent沙箱/weather-notify
-./build-fpk.sh              # 用 fpk/manifest 里的 version
-./build-fpk.sh 1.0.1        # 或显式指定版本号（会写回 manifest）
+./build-fpk.sh                 # 用 manifest 里的 version，出 x86 包
+./build-fpk.sh 0.1.1           # 指定版本号（会写回 fpk/manifest）
+./build-fpk.sh --arch arm      # 出 ARM64 包
+./build-fpk.sh --arch both     # 两个架构都出
 ```
 
 脚本做的事：复制 `fpk/` 骨架 → 复制 `src/`、`web/` 并清理缓存 →
-`pip install --target app/libs` 内置依赖 → `python3 -m py_compile` 语法自检 →
-`fnpack build` 出包。产物在 `dist/weathernotify_<版本>.fpk`（约 5–6 MB）。
+按目标架构装依赖到 `app/libs`（ARM 走交叉下载）→ 校验 `.so` 架构 →
+`python3 -m py_compile` 语法自检 → 改 manifest 的 `version` 与 `platform` → `fnpack build`。
+
+产物：
+
+| 架构 | 文件名 | manifest |
+|---|---|---|
+| x86_64 | `dist/weathernotify_<版本>.fpk` | `platform = x86` |
+| ARM64 | `dist/weathernotify_<版本>_arm.fpk` | `platform = arm` |
+
+两个包各自约 5.7–5.8 MB，`stage-x86/`、`stage-arm/` 是中间目录，可随时删。
+
+为什么不能出一个包通吃两个架构：fnOS 的 `platform` 字段不接受多值（写多个会装不上），
+而包里又带着架构相关的二进制（`cryptography` 的 `_rust.abi3.so`、`cffi`、
+`charset_normalizer` 的 cp311 扩展），所以必须按架构分开出包。
+`platform = all` 只适用于纯脚本 / Docker 型应用。
 
 Mac 上想检查组装结果可以 `SKIP_PACK=1 ./build-fpk.sh`（不调用 fnpack，
 注意此时 libs 里是 macOS 的二进制，仅看结构用）。
 
 ## 安装 / 升级 / 卸载
 
-- **安装**：应用中心 → 设置 → 手动安装 → 选 fpk。安装前先停掉手动部署的旧进程
-  （占用 18770 会因 `checkport` 装不进去）。
+- **安装**：应用中心 → 设置 → 手动安装 → 选 fpk。**先看设备架构**：
+  Intel/AMD 的 NAS 用 `weathernotify_<版本>.fpk`，RK3588/树莓派等 ARM 设备用
+  `weathernotify_<版本>_arm.fpk`（选错会被应用中心以架构不符拒绝）。
+  安装前先停掉手动部署的旧进程（占用 18770 会因 `checkport` 装不进去）。
 - **升级**：应用中心里直接更新（或再手动装一次高版本 fpk）。流程是
   `upgrade_init`（停进程）→ 替换 target → `upgrade_callback`（修数据目录权限），
   `conf/` 原地保留。
@@ -84,8 +107,9 @@ Mac 上想检查组装结果可以 `SKIP_PACK=1 ./build-fpk.sh`（不调用 fnpa
 
 ## 已知取舍
 
-- `libs/` 内置依赖绑定了 CPython 3.11（fnOS 当前系统版本）；fnOS 未来换 Python
-  大版本时需要重新打包，或届时改用 venv 方案。
+- `libs/` 内置依赖绑定了 CPython 3.11（fnOS 当前系统版本）与目标 CPU 架构；
+  fnOS 未来换 Python 大版本时需要重新打包（改 `PY_TAG` 或改用 venv 方案）。
+- ARM 包只能在 ARM 设备上验证，x86 构建机只做了架构静态校验。
 - 桌面入口用 `type=url` 直连 `IP:18770`，从 fnOS 的 HTTPS 域名访问时会另开 HTTP 页签；
   若想全走网关反代，需要改成 `iframe` + `gatewaySocket`（参考 FnMessageBot 的做法）。
 - 应用中心上架需另行走飞牛开发者流程，本包按「手动安装第三方应用」设计。
