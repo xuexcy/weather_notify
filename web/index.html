@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>天气提醒</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='88'>🌤</text></svg>">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="shell">
+
+  <header class="topbar">
+    <div>
+      <div class="loc-line">
+        <h1 id="locName">读取中</h1>
+        <button class="link-btn" id="locBtn" type="button">更改城市</button>
+      </div>
+      <div class="loc-sub" id="locSub">正在获取位置…</div>
+      <div class="loc-note hidden" id="locNote"></div>
+    </div>
+    <nav class="nav">
+      <a class="btn btn-ghost" href="/settings">设置</a>
+    </nav>
+  </header>
+
+  <!-- 选城市：按名字搜（到区县），或按 IP 重新定位 -->
+  <section class="card locpicker hidden" id="locPicker">
+    <div class="lp-head">
+      <input id="locQ" type="text" autocomplete="off" spellcheck="false"
+             placeholder="输入城市 / 区县名，如 公安县、朝阳区">
+      <button class="btn" id="locIp" type="button">按 IP 定位</button>
+      <button class="btn btn-ghost" id="locClose" type="button">取消</button>
+    </div>
+    <p class="lp-hint" id="locHint">输入后从列表里选一个，和风的数据能精确到区 / 县。</p>
+    <div class="lp-list" id="locList"></div>
+  </section>
+
+  <div id="alerts"></div>
+  <div id="notices"></div>
+
+  <!-- 主天气卡 -->
+  <section class="hero" id="hero">
+    <div class="hero-empty" id="heroEmpty">
+      <div class="he-icon">🌥️</div>
+      <div class="he-title">还没有天气数据</div>
+      <div class="he-text">填写和风天气凭据后即可显示实况、预报与官方灾害预警。</div>
+      <a class="btn primary" href="/settings">开始配置</a>
+    </div>
+    <div id="heroBody" class="hidden">
+      <div class="hero-main">
+        <div class="hero-icon" id="heroIcon">☁️</div>
+        <div class="hero-brief">
+          <div class="hero-temp"><span id="heroTemp">--</span><i>°</i></div>
+          <div class="hero-sub" id="heroSub"></div>
+        </div>
+        <div class="hero-meta" id="heroMeta"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="hourlyCard" hidden>
+    <h2 class="card-title hour-head">未来数小时
+      <span class="hour-hint"><i class="hp-dot" aria-hidden="true"></i>蓝色 % = 降水概率（非降水量）</span>
+    </h2>
+    <div class="hours" id="hours"></div>
+  </section>
+
+  <section class="card" id="dailyCard" hidden>
+    <h2 class="card-title" id="dailyTitle">未来七天</h2>
+    <div class="days-wrap" id="days"></div>
+  </section>
+
+  <section class="card" id="indicesCard" hidden>
+    <h2 class="card-title">生活指数</h2>
+    <ul class="indices" id="indices"></ul>
+  </section>
+
+  <!-- AQI 分级：默认折叠，主卡 ⓘ 与曲线图例都能展开它 -->
+  <section class="card aqi-card" id="aqiCard">
+    <button class="aqi-head" id="aqiToggle" type="button"
+            aria-expanded="false" aria-controls="aqiBody">
+      <span class="aqi-head-t">空气质量指数 AQI · 分级</span>
+      <span class="aqi-head-hint">6 档分级 + 国标原文</span>
+      <span class="aqi-chev" aria-hidden="true"></span>
+    </button>
+    <div class="aqi-body hidden" id="aqiBody">
+      <table class="aqi-table">
+        <thead><tr><th>类别</th><th>级别</th><th>AQI</th></tr></thead>
+        <tbody id="aqiRows"></tbody>
+      </table>
+      <p class="aqi-note">
+        分级依据《环境空气质量指数（AQI）技术规定》<b>HJ 633—2026</b>
+        （2026-03-01 实施，代替已废止的 HJ 633—2012）。页面上的等级与指数由天气数据源直接给出，
+        本地不重算；若实况来自 Open-Meteo 则为美国 EPA 美标，分级区间不同。
+      </p>
+      <div class="aqi-links">
+        <a href="https://www.mee.gov.cn/ywgz/fgbz/bz/bzwb/jcffbz/202602/t20260225_1144441.shtml"
+           target="_blank" rel="noopener noreferrer">生态环境部 · 标准正文 ↗</a>
+        <a href="https://www.mee.gov.cn/ywgz/fgbz/bz/bzwb/jcffbz/202602/W020260225366493492011.pdf"
+           target="_blank" rel="noopener noreferrer">PDF 全文 ↗</a>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="toastbar" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+let toastTimer;
+
+function toast(msg, kind = ""){
+  const t = $("toast");
+  t.textContent = msg;
+  t.className = "toastbar show " + kind;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = "toastbar " + kind; }, 3600);
+}
+
+/* ---------- AQI 分级：主卡、七天表、底部说明表共用的唯一数据源 ---------- */
+const AQI_LEVELS = [
+  {lv: 1, cat: "优",       level: "一级", range: "0–50",    match: c => c === "优"},
+  {lv: 2, cat: "良",       level: "二级", range: "51–100",  match: c => c === "良"},
+  {lv: 3, cat: "轻度污染", level: "三级", range: "101–150", match: c => c.includes("轻度")},
+  {lv: 4, cat: "中度污染", level: "四级", range: "151–200", match: c => c.includes("中度")},
+  {lv: 5, cat: "重度污染", level: "五级", range: "201–300", match: c => c.includes("重度")},
+  {lv: 6, cat: "严重污染", level: "六级", range: ">300",    match: c => c.includes("严重")}
+];
+function aqiLevel(cat){
+  const c = (cat || "").trim();
+  return AQI_LEVELS.find(x => x.match(c)) || null;
+}
+
+async function api(path, body){
+  const opt = body === undefined ? {} : {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body)
+  };
+  const r = await fetch(path, opt);
+  return r.json();
+}
+
+/* ---------- 预警 ---------- */
+const LEVEL_RANK = {"白色": 0, "蓝色": 1, "黄色": 2, "橙色": 3, "红色": 4};
+
+function renderAlerts(warnings){
+  const box = $("alerts");
+  if (!warnings || !warnings.length){ box.innerHTML = ""; return; }
+  box.innerHTML = warnings.map(w => {
+    const rank = LEVEL_RANK[w.level] ?? 0;
+    const severe = rank >= 3;
+    return `
+    <div class="alert ${severe ? "alert--danger" : "alert--warn"}">
+      <div class="alert-head">
+        <span class="alert-title">${esc(w.typeName || "天气")}预警</span>
+        <span class="alert-level lv-${rank}">${esc(w.level || "")}</span>
+        ${w.status && w.status !== "预警中"
+          ? `<span class="alert-status">${esc(w.status)}</span>` : ""}
+      </div>
+      ${w.title ? `<div class="alert-t">${esc(w.title)}</div>` : ""}
+      <div class="alert-body">${esc(w.text || "")}</div>
+    </div>`;
+  }).join("");
+}
+
+/* ---------- 主天气 ---------- */
+function renderHero(w){
+  const now = w.now || {};
+  $("heroEmpty").classList.add("hidden");
+  $("heroBody").classList.remove("hidden");
+  $("heroIcon").textContent = now.icon || "☁️";
+  $("heroTemp").textContent = now.temp ?? "--";
+
+  const sub = [now.text || "—"];
+  if (now.feels != null) sub.push(`体感 <b>${now.feels}°</b>`);
+  const today = (w.daily || [])[0];
+  if (today && today.low != null && today.high != null)
+    sub.push(`${today.low}° ~ ${today.high}°`);
+  $("heroSub").innerHTML = sub.join(" · ");
+
+  const cells = [];
+  if (now.wind_dir || now.wind_scale)
+    cells.push(["风力", `${now.wind_dir || ""} ${now.wind_scale || "-"} 级`.trim(), ""]);
+  if (now.humidity != null)
+    cells.push(["湿度", `${now.humidity}%`, ""]);
+  const air = w.air;
+  if (air && air.aqi != null){
+    // 「优(90)」：等级在前，指数放括号里弱化；ⓘ 展开底部分级说明
+    const cat = (air.category || "").trim();
+    const info = '<button class="aqi-info" type="button" data-aqi-open aria-label="查看 AQI 分级与标准" title="查看 AQI 分级与标准">ⓘ</button>';
+    const value = cat ? `${esc(cat)}<small>(${air.aqi})</small>` : `${air.aqi}`;
+    cells.push(["空气质量", value + info,
+                aqiColor(cat),
+                "空气质量指数 AQI · " + (air.std === "US"
+                  ? "美国 EPA 标准" : "中国国标 HJ 633—2026")]);
+  }
+
+  // 右侧三行：标签在左、值在右，flat 输出成网格项
+  $("heroMeta").innerHTML = cells.map(([k, v, color, title]) => {
+    const t = title ? ` title="${esc(title)}"` : "";
+    return `<div class="meta-k"${t}>${k}</div>`
+         + `<div class="meta-v"${color ? ` style="color:${color}"` : ""}${t}>${v}</div>`;
+  }).join("");
+}
+
+function aqiColor(cat){
+  const x = aqiLevel(cat);
+  return x ? `var(--aqi-${x.lv})` : "";
+}
+
+function renderHourly(list){
+  const card = $("hourlyCard");
+  if (!list || !list.length){ card.hidden = true; return; }
+  card.hidden = false;
+  $("hours").innerHTML = list.map(h => {
+    const pop = h.pop != null && h.pop > 0 ? h.pop + "%" : "";
+    return `
+    <div class="hour">
+      <div class="hour-t">${esc(h.time || "")}</div>
+      <div class="hour-i">${h.icon || ""}</div>
+      <div class="hour-v">${h.temp ?? "-"}°</div>
+      <div class="hour-p"${pop ? ` title="降水概率 ${pop}（该小时出现降水的可能性）"` : ""}>${pop}</div>
+    </div>`;
+  }).join("");
+}
+
+const CN_NUM = {3:"三",4:"四",5:"五",6:"六",7:"七",8:"八",9:"九",10:"十",
+                11:"十一",12:"十二",13:"十三",14:"十四",15:"十五",30:"三十"};
+const CURVE_H = 88;
+
+function renderDaily(list){
+  const card = $("dailyCard");
+  if (!list || !list.length){ card.hidden = true; return; }
+  card.hidden = false;
+  $("dailyTitle").textContent = "未来" + (CN_NUM[list.length] || list.length) + "天";
+  $("days").innerHTML = list.length > 5 ? dailyChart(list) : dailyList(list);
+  markScrollable();
+}
+
+/* 列多到放不下时，用边缘渐隐提示「还能左右滑」 */
+function markScrollable(){
+  const wrap = $("days").querySelector(".wchart-wrap");
+  if (!wrap) return;
+  const update = () => {
+    const rest = wrap.scrollWidth - wrap.clientWidth - wrap.scrollLeft;
+    wrap.classList.toggle("is-left", wrap.scrollLeft > 4);
+    wrap.classList.toggle("is-right", rest > 4);
+  };
+  wrap.addEventListener("scroll", update, {passive: true});
+  update();
+}
+
+/* 5 天以内：逐行列表（信息密度低，不必上曲线） */
+function dailyList(list){
+  return `<ul class="days">${list.map(d => `
+    <li>
+      <span class="day-label">${esc(d.label || d.date || "")}</span>
+      <span class="day-icon">${d.icon || ""}</span>
+      <span class="day-text">${esc(d.text || "")}</span>
+      <span class="day-temp">${d.low ?? "-"}° <small>~ ${d.high ?? "-"}°</small></span>
+    </li>`).join("")}</ul>`;
+}
+
+/* 超过 5 天：一天一列 + 高低温曲线 */
+function dailyChart(list){
+  const cols = list.length;
+  // 横坐标以「每列 100 单位」表示，SVG 用 preserveAspectRatio=none 横向拉伸，
+  // 列宽交给 CSS 的 1fr，避免依赖 JS 测量（取消 hidden 的同一帧宽度会读到 0）。
+  const width = cols * 100;
+  const cx = i => i * 100 + 50;
+
+  const temps = list.flatMap(d => [d.high, d.low]).filter(v => typeof v === "number");
+  const top = temps.length ? Math.max(...temps) : 0;
+  const bottom = temps.length ? Math.min(...temps) : 0;
+  const span = Math.max(top - bottom, 1);
+  const padY = 13;
+  const y = v => padY + (top - v) / span * (CURVE_H - padY * 2);
+
+  const hiPts = list.map((d, i) => [cx(i), y(typeof d.high === "number" ? d.high : top)]);
+  const loPts = list.map((d, i) => [cx(i), y(typeof d.low === "number" ? d.low : bottom)]);
+  const band = smoothPath(hiPts) + " "
+    + smoothPath(loPts.slice().reverse()).replace(/^M/, "L") + " Z";
+
+  const row = (cls, cells) =>
+    `<div class="wrow ${cls}">${cells.map(c => `<span>${c}</span>`).join("")}</div>`;
+
+  return `<div class="wchart-wrap">
+    <div class="wchart" style="--cols:${cols}">
+      ${row("wrow-week", list.map(d => esc(d.label || d.week || "")))}
+      ${row("wrow-date", list.map(d => esc(d.date_label || "")))}
+      ${row("wrow-icon", list.map(d => d.icon || ""))}
+      ${row("wrow-text", list.map(d => esc(d.text || "")))}
+      ${row("wrow-high", list.map(d => d.high != null ? d.high + "°" : "–"))}
+      <div class="wrow wrow-curve">
+        <svg viewBox="0 0 ${width} ${CURVE_H}" preserveAspectRatio="none"
+             width="100%" height="${CURVE_H}" aria-hidden="true">
+          <defs>
+            <linearGradient id="curveBand" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" class="band-hi"/>
+              <stop offset="100%" class="band-lo"/>
+            </linearGradient>
+          </defs>
+          <path class="curve-band" d="${band}"/>
+          <path class="curve-line curve-line--hi" d="${smoothPath(hiPts)}"/>
+          <path class="curve-line curve-line--lo" d="${smoothPath(loPts)}"/>
+        </svg>
+      </div>
+      ${row("wrow-low", list.map(d => d.low != null ? d.low + "°" : "–"))}
+      ${row("wrow-aqi", list.map(d => {
+          if (d.aqi == null) return `<i class="aqi-none">–</i>`;
+          const cat = (d.aqi_cat || "").trim();
+          const txt = cat ? `<span class="aqi-cat">${esc(cat)}</span><small>(${d.aqi})</small>`
+                          : `${d.aqi}`;
+          return `<b class="${aqiClass(cat)}" title="空气质量指数 AQI${cat ? " · " + esc(cat) : ""}">${txt}</b>`;
+        }))}
+    </div>
+  </div>
+  <div class="wlegend">
+    <span><i class="lg lg-hi"></i>最高温</span>
+    <span><i class="lg lg-lo"></i>最低温</span>
+    <span class="lg-note">底部为当日空气质量（等级 + 指数） ·
+      <button class="link-btn aqi-open" type="button" data-aqi-open>AQI 分级 ↗</button></span>
+  </div>`;
+}
+
+/* Catmull-Rom 转三次贝塞尔，得到不过冲的平滑折线 */
+function smoothPath(pts){
+  if (!pts.length) return "";
+  if (pts.length === 1) return `M${pts[0][0]},${pts[0][1]}`;
+  let d = `M${pts[0][0]},${pts[0][1]}`;
+  const t = 0.16;
+  for (let i = 0; i < pts.length - 1; i++){
+    const p0 = pts[i - 1] || pts[i], p1 = pts[i];
+    const p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+    d += ` C${p1[0] + (p2[0] - p0[0]) * t},${p1[1] + (p2[1] - p0[1]) * t}`
+       + ` ${p2[0] - (p3[0] - p1[0]) * t},${p2[1] - (p3[1] - p1[1]) * t}`
+       + ` ${p2[0]},${p2[1]}`;
+  }
+  return d;
+}
+
+function aqiClass(cat){
+  const x = aqiLevel(cat);
+  return x ? `aqi-${x.lv}` : "";
+}
+
+function renderIndices(list){
+  const card = $("indicesCard");
+  if (!list || !list.length){ card.hidden = true; return; }
+  card.hidden = false;
+  $("indices").innerHTML = list.map(i => `
+    <li>
+      <div><span class="idx-name">${esc(i.name || "")}</span>
+           <span class="idx-cat">${esc(i.category || "")}</span></div>
+      <div class="idx-text">${esc(i.text || "")}</div>
+    </li>`).join("");
+}
+
+/* ---------- 数据源提示 ---------- */
+function renderNotices(s, w){
+  const out = [];
+  if (w && w.source === "openmeteo"){
+    out.push(`<div class="notice">
+      <span class="n-text">当前天气来自 <b>${esc(w.source_label || "Open-Meteo")}</b>${w.fallback_reason ? "（" + esc(w.fallback_reason) + "）" : ""}。
+      Open-Meteo 不提供中国官方灾害预警。</span>
+      <a class="link" href="/settings">接入和风</a></div>`);
+  }
+  const missing = (s.missing || []).filter(m => !m.startsWith("城市位置"));
+  if (!w && missing.length){
+    out.push(`<div class="notice danger">
+      <span class="n-text">${esc(missing.join("；"))}</span>
+      <a class="link" href="/settings">去填写</a></div>`);
+  }
+  $("notices").innerHTML = out.join("");
+}
+
+/* ---------- 位置 ---------- */
+function renderLocation(s){
+  const loc = s.location || {};
+  $("locName").textContent = loc.name || "未设置位置";
+  $("locName").title = [loc.admin, loc.name].filter(Boolean).join(" ");
+  const src = {ip: "IP 自动定位", manual: "手动设置"}[loc.source] || "未设置";
+  const bits = [];
+  if (loc.admin) bits.push(loc.admin);
+  bits.push(src);
+  if (loc.updated) bits.push("定位于 " + loc.updated.slice(5, 16));
+  if (loc.ip) bits.push("出口 " + loc.ip);
+  $("locSub").textContent = bits.join(" · ");
+  const note = $("locNote");
+  if (loc.note){ note.classList.remove("hidden"); note.textContent = "⚠️ " + loc.note; }
+  else note.classList.add("hidden");
+}
+
+/* ---------- 加载 ---------- */
+async function loadStatus(){
+  const s = await api("/api/status");
+  renderLocation(s);
+  window.__status = s;
+  return s;
+}
+
+async function loadWeather(force){
+  try{
+    const r = await api("/api/weather" + (force ? "?fresh=1" : ""));
+    if (!r.ok){
+      $("heroEmpty").classList.remove("hidden");
+      $("heroBody").classList.add("hidden");
+      if (r.error){
+        $("heroEmpty").querySelector(".he-title").textContent = "暂时拿不到天气数据";
+        $("heroEmpty").querySelector(".he-text").textContent = r.error;
+      }
+      return null;
+    }
+    const w = r.weather;
+    renderHero(w);
+    renderAlerts(w.warnings);
+    renderHourly(w.hourly);
+    renderDaily(w.daily);
+    renderIndices(w.indices);
+    return w;
+  }catch(e){
+    toast("获取天气失败：" + e.message, "err");
+    return null;
+  }
+}
+
+async function refresh(force){
+  let s = {};
+  try { s = await loadStatus(); }
+  catch(e){ toast("读取配置状态失败：" + e.message, "err"); }
+  const w = await loadWeather(force);
+  window.__weather = w;
+  renderNotices(s, w);
+}
+
+/* ---------- 选城市 ---------- */
+const picker = { open: false, items: [], timer: 0, seq: 0 };
+
+function togglePicker(open){
+  picker.open = open === undefined ? !picker.open : open;
+  $("locPicker").classList.toggle("hidden", !picker.open);
+  if (picker.open){
+    $("locQ").value = "";
+    $("locList").innerHTML = "";
+    $("locHint").textContent = "输入后从列表里选一个，和风的数据能精确到区 / 县。";
+    $("locQ").focus();
+  }
+}
+
+/* GeoAPI 的 name 不带「区/县」后缀，所以要拼上省/市才不歧义 */
+function cityAdm(it){
+  const parts = [it.adm1, it.adm2].filter((x, i, a) => x && x !== it.name && a.indexOf(x) === i);
+  if (it.country && it.country !== "中国") parts.push(it.country);
+  return parts.join(" · ");
+}
+
+function renderCityList(items){
+  picker.items = items || [];
+  if (!picker.items.length){
+    $("locList").innerHTML = "";
+    $("locHint").textContent = "没有匹配的城市，换个说法试试（可以去掉「市」「县」后缀）。";
+    return;
+  }
+  $("locList").innerHTML = picker.items.map((it, i) =>
+    `<button class="lp-item" type="button" data-i="${i}">
+       <span class="lp-name">${esc(it.name)}</span>
+       <span class="lp-adm">${esc(cityAdm(it))}</span></button>`).join("");
+  $("locHint").textContent = `共 ${picker.items.length} 个结果，点一个即可切换`;
+}
+
+async function searchCity(kw){
+  const q = (kw || "").trim();
+  if (!q){ $("locList").innerHTML = ""; picker.items = []; return; }
+  const seq = ++picker.seq;   // 只认最后一次输入的结果
+  $("locHint").textContent = "搜索中…";
+  try{
+    const r = await api("/api/city", {keyword: q});
+    if (seq !== picker.seq) return;
+    if (!r.ok){
+      picker.items = []; $("locList").innerHTML = "";
+      $("locHint").textContent = r.error || "搜索失败";
+      return;
+    }
+    renderCityList(r.items);
+  }catch(e){
+    if (seq !== picker.seq) return;
+    $("locHint").textContent = "搜索失败：" + e.message;
+  }
+}
+
+async function applyCity(item){
+  try{
+    const r = await api("/api/location", item);
+    if (!r.ok){ toast(r.error || "切换失败", "err"); return; }
+    toast(`位置已改为 ${r.location.name}`, "ok");
+    togglePicker(false);
+    await refresh(true);
+  }catch(e){ toast("切换失败：" + e.message, "err"); }
+}
+
+$("locBtn").onclick = () => togglePicker();
+$("locClose").onclick = () => togglePicker(false);
+$("locQ").addEventListener("input", e => {
+  clearTimeout(picker.timer);
+  const v = e.target.value;
+  picker.timer = setTimeout(() => searchCity(v), 320);
+});
+$("locQ").addEventListener("keydown", e => {
+  if (e.key === "Enter"){
+    e.preventDefault();
+    if (picker.items.length) applyCity(picker.items[0]);
+  } else if (e.key === "Escape") togglePicker(false);
+});
+$("locList").onclick = e => {
+  const b = e.target.closest(".lp-item");
+  if (b) applyCity(picker.items[Number(b.dataset.i)]);
+};
+
+/* 按公网 IP 重新定位 */
+$("locIp").onclick = async () => {
+  const btn = $("locIp");
+  if (btn.disabled) return;
+  btn.disabled = true;
+  toast("正在按公网 IP 定位…");
+  try{
+    const r = await api("/api/geoip", {apply: true});
+    if (r.ok){
+      toast(r.geo.warn ? `定位到 ${r.geo.city}，${r.geo.warn}` : `已定位到 ${r.geo.city}`,
+            r.geo.warn ? "warn" : "ok");
+      togglePicker(false);
+      await refresh(true);
+    } else toast(r.error || "定位失败", "err");
+  }catch(e){ toast("定位失败：" + e.message, "err"); }
+  btn.disabled = false;
+};
+
+/* 页面重新可见时刷新（超过 3 分钟） */
+let lastLoad = Date.now();
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && Date.now() - lastLoad > 180000) { lastLoad = Date.now(); refresh(false); }
+});
+
+function esc(s){
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/* ---------- AQI 分级表 / 展开 ---------- */
+function renderAqiTable(){
+  $("aqiRows").innerHTML = AQI_LEVELS.map(x => `
+    <tr>
+      <td><i class="aqi-swatch" style="--lv:var(--aqi-${x.lv})"></i><span class="aqi-lv" style="--lv:var(--aqi-${x.lv})">${x.cat}</span></td>
+      <td>${x.level}</td>
+      <td class="aqi-range">${x.range}</td>
+    </tr>`).join("");
+}
+
+function setAqiCard(open){
+  $("aqiBody").classList.toggle("hidden", !open);
+  $("aqiToggle").setAttribute("aria-expanded", String(open));
+}
+
+/* 事件委托：动态渲染出来的 ⓘ 和图例按钮也能点 */
+document.addEventListener("click", e => {
+  if (e.target.closest("#aqiToggle")){
+    setAqiCard($("aqiToggle").getAttribute("aria-expanded") !== "true");
+    return;
+  }
+  if (e.target.closest("[data-aqi-open]")){
+    e.preventDefault();
+    setAqiCard(true);
+    $("aqiCard").scrollIntoView({behavior: "smooth", block: "nearest"});
+  }
+});
+
+renderAqiTable();
+refresh(false);
+</script>
+
+</body>
+</html>

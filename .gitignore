@@ -1,0 +1,15 @@
+# 私密配置，绝不入库
+conf/
+logs/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# macOS
+.DS_Store
+
+# 本地备份
+*.bak
+*.bak_*

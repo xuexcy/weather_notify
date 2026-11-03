@@ -1,0 +1,1634 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设置 · 天气提醒</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='88'>🌤</text></svg>">
+<link rel="stylesheet" href="/style.css">
+<style>
+  /* 多选场景专用（仅本页使用） */
+  .checks { display: flex; flex-wrap: wrap; gap: 7px; }
+  .check {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12.5px; padding: 6px 11px; cursor: pointer;
+    border: 1px solid var(--line-2); border-radius: 8px;
+    background: var(--surface-2); color: var(--text-2);
+    transition: border-color .15s, background .15s, color .15s;
+  }
+  .check:hover { border-color: var(--accent-line); }
+  .check:has(input:checked) {
+    border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent);
+  }
+  .check input {
+    appearance: none; -webkit-appearance: none; margin: 0;
+    width: 14px; height: 14px; border-radius: 4px;
+    border: 1.5px solid var(--line-2); background: var(--surface);
+    position: relative; cursor: pointer; flex: none;
+  }
+  .check input:checked { background: var(--accent); border-color: var(--accent); }
+  .check input:checked::after {
+    content: ""; position: absolute; left: 3.5px; top: 0;
+    width: 4px; height: 7px; border: solid #fff;
+    border-width: 0 1.5px 1.5px 0; transform: rotate(45deg);
+  }
+  .savebar .saved { font-size: 12px; color: var(--text-3); }
+  .savebar .saved.err { color: var(--danger); }
+  .out-chip {
+    font-size: 12px; padding: 3px 9px; border-radius: 999px;
+    background: var(--surface-3); color: var(--text-2); margin-right: 6px;
+  }
+  .out-chip.ok { background: var(--ok-soft); color: var(--ok); }
+  .out-chip.err { background: var(--danger-soft); color: var(--danger); }
+  /* 服务卡片 */
+  .port-now {
+    display: flex; align-items: center; min-height: 34px;
+    padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--surface-2); font: 12.5px/1.5 var(--mono);
+  }
+  .port-now a { color: var(--accent); text-decoration: none; word-break: break-all; }
+  .port-now a:hover { text-decoration: underline; }
+  .svc-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+  .svc-state { font-size: 11.5px; color: var(--text-3); line-height: 1.5; }
+  .svc-state.ok { color: var(--ok); }
+  .svc-state.err { color: var(--danger); }
+
+  /* 消息格式：左编辑 / 右预览 */
+  .msg-split {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, .95fr);
+    gap: 18px;
+  }
+  .msg-edit { min-width: 0; }
+  /* 右栏跟着左栏高度撑满，两栏底部对齐 */
+  .msg-view {
+    min-width: 0; display: flex; flex-direction: column; gap: 8px;
+  }
+  .mv-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: none; }
+  .mv-head-t {
+    font-size: 11.5px; color: var(--text-3); letter-spacing: .04em; flex: none;
+  }
+  .mv-styles { margin-left: auto; flex-wrap: wrap; }
+  .mv-styles span { padding: 4px 9px; font-size: 11.5px; }
+  .mv-card {
+    border: 1px solid var(--line); border-radius: 10px;
+    background: var(--surface-2); overflow: hidden;
+    flex: 1 1 auto; min-height: 0;
+    display: flex; flex-direction: column;
+  }
+  .mv-title {
+    padding: 10px 12px; font-size: 13px; font-weight: 500; line-height: 1.5;
+    color: var(--text); border-bottom: 1px solid var(--line);
+    word-break: break-word; flex: none;
+  }
+  .mv-title:empty { display: none; }
+  .mv-body {
+    margin: 0; padding: 11px 12px; min-height: 190px; max-height: 480px;
+    overflow: auto; flex: 1 1 auto;
+    font: 11.5px/1.7 var(--mono); color: var(--text-2);
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .mv-body.is-empty, .mv-body.is-error { color: var(--text-3); }
+  .mv-body.is-error { color: var(--danger); }
+  .mv-foot {
+    display: flex; align-items: center; gap: 8px; min-height: 28px; flex: none;
+  }
+  .mv-note { font-size: 11px; color: var(--text-3); line-height: 1.4; flex: 1; min-width: 0; }
+  .mv-foot button { flex: none; margin-left: auto; }
+  .mv-busy { opacity: .55; transition: opacity .15s; }
+  /* 定时播报 / 访问密码 */
+  .switch-line {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    font-size: 13px; cursor: pointer;
+  }
+  .switch-line input { width: 16px; height: 16px; accent-color: var(--accent); flex: none; }
+  .switch-line .hint { font-size: 11.5px; }
+  .sched-add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .sched-add input[type=time], .sched-add input[type=number] {
+    width: 150px; padding: 8px 10px; border: 1px solid var(--line-2);
+    border-radius: 8px; background: var(--surface); color: var(--text);
+    font: 13px var(--mono);
+  }
+  .sched-times {
+    display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px;
+    min-height: 30px; align-items: center;
+  }
+  .sched-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 8px 5px 11px; border-radius: 999px;
+    background: var(--accent-soft); color: var(--accent);
+    border: 1px solid var(--accent-line); font: 12.5px var(--mono);
+  }
+  .sched-chip button {
+    border: 0; background: transparent; color: inherit; cursor: pointer;
+    font-size: 15px; line-height: 1; padding: 0 2px; opacity: .7;
+  }
+  .sched-chip button:hover { opacity: 1; }
+  .sched-empty { font-size: 12px; color: var(--text-3); }
+  .sched-status {
+    margin-top: 12px; padding: 9px 11px; border-radius: 8px;
+    background: var(--surface-2); border: 1px solid var(--line);
+    font-size: 12px; color: var(--text-2); line-height: 1.7;
+  }
+  .sched-sep { border-top: 1px solid var(--line); margin: 18px 0 14px; }
+  .login-link { font-size: 12.5px; }
+  /* 添加通道：标题栏按钮 + 下拉菜单 */
+  .chan-add-wrap { position: relative; margin-left: auto; }
+  .chan-menu {
+    position: absolute; right: 0; top: calc(100% + 6px); z-index: 30;
+    min-width: 230px; padding: 6px;
+    background: var(--surface); border: 1px solid var(--line-2);
+    border-radius: 10px; box-shadow: 0 10px 28px rgba(0,0,0,.16);
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .chan-menu button {
+    border: 0; background: transparent; cursor: pointer; text-align: left;
+    padding: 9px 11px; border-radius: 8px; color: var(--text);
+    font-size: 12.5px; font-weight: 500; line-height: 1.5;
+  }
+  .chan-menu button:hover { background: var(--surface-2); }
+  .chan-menu button:disabled { opacity: .5; cursor: default; }
+  .chan-menu .cm-desc {
+    display: block; font-size: 11.5px; font-weight: 400;
+    color: var(--text-3); margin-top: 1px;
+  }
+  .chan-empty { font-size: 12.5px; color: var(--text-3); padding: 6px 0 2px; }
+  .chan-foot { margin-top: 12px; justify-content: space-between; }
+  .chan-foot .chan-test { color: var(--text); }
+  .chan-foot button { color: var(--danger); }
+  .chan-foot-btns { display: flex; gap: 8px; }
+  /* 通道卡片头部：启用开关 + 可编辑名称（同类多通道用名称区分） */
+  .chan-head { cursor: default; }
+  .chan-head input[type=checkbox] { flex: none; }
+  .chan-name {
+    width: 170px; padding: 5px 8px;
+    border: 1px solid transparent; border-radius: 7px;
+    background: transparent; color: var(--text);
+    font: inherit; font-weight: 600;
+  }
+  .chan-name:hover { border-color: var(--line-2); background: var(--surface); }
+  .chan-name:focus { border-color: var(--accent-line); background: var(--surface); outline: none; }
+  /* 通道用途：正式 / 测试 两个可同时点亮的开关（一个通道可以两用） */
+  .chan-roles { display: flex; gap: 5px; flex: none; }
+  .role-chip {
+    border: 1px solid var(--line-2); background: var(--surface);
+    color: var(--text-3); cursor: pointer; font: inherit;
+    font-size: 11.5px; font-weight: 600; line-height: 1.6;
+    padding: 3px 10px; border-radius: 999px;
+    transition: border-color .15s, background .15s, color .15s;
+  }
+  .role-chip:hover { border-color: var(--accent-line); color: var(--text); }
+  .role-chip[aria-pressed="true"] {
+    border-color: var(--accent-line); background: var(--accent-soft);
+    color: var(--accent);
+  }
+  .role-chip[aria-pressed="true"]::before {
+    content: "✓"; font-size: 10px; margin-right: 4px; opacity: .9;
+  }
+  .role-chip[data-role="test"][aria-pressed="true"] {
+    border-color: var(--warn-line); background: var(--warn-soft);
+    color: var(--warn);
+  }
+  @media (max-width: 820px) {
+    .msg-split { grid-template-columns: 1fr; gap: 14px; }
+    .mv-body { min-height: 150px; max-height: 320px; }
+  }
+</style>
+</head>
+<body>
+<div class="shell shell--narrow">
+
+  <header class="topbar">
+    <div>
+      <h1>设置</h1>
+      <p class="sub">改动失去焦点自动保存 · 凭据只写入本机 conf/</p>
+    </div>
+    <nav class="nav">
+      <a class="btn btn-ghost" href="/">← 返回</a>
+      <button class="btn btn-ghost hidden login-link" id="logoutBtn" type="button">退出登录</button>
+    </nav>
+  </header>
+
+  <!-- 天气数据 -->
+  <section class="card">
+    <h2 class="card-title">
+      <span>天气数据</span>
+      <button class="small" id="qwTestBtn" type="button"
+              title="真实调用一次和风 GeoAPI，验证 Host、项目 ID、凭据 ID 与私钥是否有效">测试 API</button>
+    </h2>
+    <p class="card-desc">
+      和风提供实况、预报与<b>中国官方灾害预警</b>。留空时首页会用 Open-Meteo
+      兜底显示天气，但拿不到预警。
+    </p>
+    <div class="form-grid">
+      <div class="field">
+        <div class="field-label">
+          <a href="https://console.qweather.com/setting?lang=zh"
+             target="_blank" rel="noopener" title="打开和风天气控制台设置页">API Host</a><i class="req hidden" data-req="api_host">*</i>
+        </div>
+        <input id="api_host" type="text" aria-label="API Host"
+               placeholder="abc123.re.qweatherapi.com">
+        <div class="hint">在和风控制台「设置」页查看</div>
+      </div>
+      <div class="field">
+        <div class="field-label">
+          <a href="https://console.qweather.com/project?lang=zh"
+             target="_blank" rel="noopener" title="打开和风控制台项目管理，进入项目后查看凭据 ID">凭据 ID</a><i class="req hidden" data-req="credential_id">*</i>
+        </div>
+        <input id="credential_id" type="text" aria-label="凭据 ID" placeholder="JWT 凭据的 kid">
+        <div class="hint">项目凭据 → 身份认证（JWT）</div>
+      </div>
+      <div class="field full">
+        <div class="field-label">
+          <a href="https://console.qweather.com/project?lang=zh"
+             target="_blank" rel="noopener" title="打开和风控制台项目管理">项目 ID</a><i class="req hidden" data-req="project_id">*</i>
+        </div>
+        <input id="project_id" type="text" aria-label="项目 ID" placeholder="控制台 → 项目管理">
+      </div>
+    </div>
+
+    <div class="keybox">
+      <span id="keyBadge" class="badge no">私钥未检测</span>
+      <pre id="pubKey">（未生成）</pre>
+      <button class="small" id="copyPub" type="button">复制公钥</button>
+    </div>
+    <p class="hint" style="margin:9px 0 0">
+      把公钥上传到和风控制台「创建凭据 → JWT」。私钥存于
+      <code style="font-family:var(--mono)">conf/ed25519-private.pem</code>，不会被读取展示或上传。
+    </p>
+    <p class="hint" id="qwTestState" style="margin:6px 0 0">—</p>
+  </section>
+
+  <!-- 位置 -->
+  <section class="card">
+    <h2 class="card-title">位置
+      <button class="small" id="geoBtn" type="button">按 IP 重新定位</button>
+    </h2>
+
+    <div class="lp-head">
+      <input id="locQ" type="text" autocomplete="off" spellcheck="false"
+             placeholder="搜城市 / 区县，如 公安县、朝阳区">
+      <button class="btn" id="locSearch" type="button">搜索</button>
+    </div>
+    <p class="lp-hint" id="locHint">选中后会自动填好下面两项；也可以自己改（位置值支持「经度,纬度」或和风 LocationID）。</p>
+    <div class="lp-list" id="locList"></div>
+
+    <div class="form-grid" style="margin-top:16px">
+      <div class="field">
+        <label for="location_name">城市名</label>
+        <input id="location_name" type="text" placeholder="公安">
+      </div>
+      <div class="field">
+        <label for="location">位置值（经度,纬度）</label>
+        <input id="location" type="text" placeholder="112.23,30.06"
+               aria-describedby="locFmt">
+        <p class="hint" id="locFmt">和风要求「经度,纬度」，经度在前；也可填 LocationID。</p>
+      </div>
+    </div>
+    <input type="hidden" id="location_admin" value="">
+    <p class="hint" id="locState" style="margin:10px 0 0">—</p>
+  </section>
+
+  <!-- 提醒通道：可添加多个实例（含同类多个），卡片由 JS 按配置动态渲染 -->
+  <section class="card">
+    <h2 class="card-title">
+      <span>提醒通道</span>
+      <span class="chan-add-wrap" id="chanAddWrap">
+        <button class="small" id="chanAddBtn" type="button">＋ 添加通道</button>
+        <span class="chan-menu hidden" id="chanMenu"></span>
+      </span>
+    </h2>
+    <div class="chan-empty hidden" id="chanEmpty">
+      还没有提醒通道，点右上角「＋ 添加通道」接入企业微信机器人或 MagicPush，
+      再在卡片上选它的用途：<b>正式</b>（收定时播报与预警）、<b>测试</b>（只收「测试推送」），两者可同时选。
+    </div>
+    <div id="chanList"></div>
+  </section>
+
+  <!-- 播报内容 -->
+  <section class="card">
+    <h2 class="card-title">播报内容</h2>
+    <div class="form-grid">
+      <div class="field">
+        <label for="hourly_hours">逐小时预报条数</label>
+        <input id="hourly_hours" type="number" min="0" max="24" step="1">
+      </div>
+      <div class="field">
+        <label for="forecast_days">逐日预报天数</label>
+        <select id="forecast_days">
+          <option value="3">3 天</option>
+          <option value="7">7 天</option>
+          <option value="10">10 天</option>
+          <option value="15">15 天</option>
+          <option value="30">30 天</option>
+        </select>
+        <div class="hint">超过 7 天需和风相应订阅</div>
+      </div>
+      <div class="field">
+        <label for="alert_min_level">预警最低等级</label>
+        <select id="alert_min_level">
+          <option value="白色">白色（全部）</option>
+          <option value="蓝色">蓝色</option>
+          <option value="黄色">黄色</option>
+          <option value="橙色">橙色</option>
+          <option value="红色">红色（仅最高级）</option>
+        </select>
+      </div>
+      <div class="field full">
+        <label>生活指数</label>
+        <div class="checks" id="indicesChecks">
+          <label class="check"><input type="checkbox" value="3">穿衣</label>
+          <label class="check"><input type="checkbox" value="5">紫外线</label>
+          <label class="check"><input type="checkbox" value="9">感冒</label>
+          <label class="check"><input type="checkbox" value="1">运动</label>
+          <label class="check"><input type="checkbox" value="2">洗车</label>
+        </div>
+      </div>
+      <div class="field">
+        <label for="alert_resend_hours">同一预警重推间隔（小时）</label>
+        <input id="alert_resend_hours" type="number" min="0" step="1">
+        <div class="hint">预警升级会立即重推，不受此限制</div>
+      </div>
+      <div class="field">
+        <label for="alert_types">只推这些预警类型</label>
+        <input id="alert_types" type="text" placeholder="留空 = 全部，例：大风,暴雨,台风">
+      </div>
+    </div>
+  </section>
+
+  <!-- 定时播报 -->
+  <section class="card">
+    <h2 class="card-title">
+      <span>定时播报</span>
+      <span class="badge no" id="schedBadge">未启用</span>
+    </h2>
+
+    <label class="switch-line" for="schedule_enabled">
+      <input type="checkbox" id="schedule_enabled">
+      <span>每天定时日常播报</span>
+      <span class="hint">实况 + 空气 + 预报 + 生活指数 + 预警，时间按北京时间</span>
+    </label>
+
+    <div class="field" style="margin-top:14px">
+      <label>播报时间点</label>
+      <div class="sched-add">
+        <input type="time" id="schedTime" value="07:30" aria-label="添加播报时间点">
+        <button class="small" id="schedAdd" type="button">添加</button>
+      </div>
+      <div class="sched-times" id="schedTimes"></div>
+      <div class="hint">可加多个时间点（最多 12 个），点 × 删除，改动自动保存。</div>
+    </div>
+
+    <div class="sched-status" id="schedState">—</div>
+
+    <div class="svc-row">
+      <button id="schedRun" type="button"
+              title="按当前配置立即播报一次，会真的推送到所有已启用通道">立即播报一次</button>
+      <span class="svc-state" id="schedRunState"></span>
+    </div>
+
+    <div class="sched-sep"></div>
+
+    <label class="switch-line" for="warning_enabled">
+      <input type="checkbox" id="warning_enabled">
+      <span>定时预警轮询</span>
+      <span class="hint">只有新预警才推送；预警升级立即重推</span>
+    </label>
+
+    <div class="field" style="margin-top:12px">
+      <label for="warning_interval">检查间隔（分钟）</label>
+      <div class="sched-add">
+        <input type="number" id="warning_interval" min="1" max="120" step="1" value="10">
+        <span class="hint">1–120 分钟，默认 10</span>
+      </div>
+      <div class="hint">需要有效的和风凭据与经纬度。服务重启后从当前时刻重新起算，不补推停机期间的旧预警。</div>
+    </div>
+
+    <div class="sched-status" id="warnState">—</div>
+
+    <div class="svc-row">
+      <button id="warnRun" type="button"
+              title="立即检查一次预警，只有新预警才推送">立即检查预警</button>
+      <span class="svc-state" id="warnRunState"></span>
+    </div>
+  </section>
+
+  <!-- 消息格式 -->
+  <section class="card">
+    <h2 class="card-title">
+      <span>消息格式</span>
+      <button class="small" id="testBtn" type="button"
+              title="只发到勾了「测试」的通道：日常播报（真实天气）+ 天气预警（示例预警），都带「🧪 测试」标记；只勾正式的通道不会收到，随便点">测试推送</button>
+      <button class="small" id="resetMsg" type="button">恢复默认</button>
+    </h2>
+    <p class="card-desc">
+      左边改模板，右边按当前填写的配置实时预览（不会真的推送）。
+      花括号里是变量，写错的变量会原样显示，方便你发现。
+    </p>
+
+    <div class="msg-split">
+      <div class="msg-edit">
+        <div class="seg msg-tabs" id="msgTabs">
+          <label><input type="radio" name="msg_tab" value="broadcast" checked><span>日常播报</span></label>
+          <label><input type="radio" name="msg_tab" value="alert"><span>天气预警</span></label>
+        </div>
+
+        <div class="msg-pane" data-pane="broadcast">
+          <div class="field">
+            <label for="broadcast_title">标题模板</label>
+            <input id="broadcast_title" type="text" spellcheck="false">
+            <div class="hint">留空即回到默认（含 {date} 日期）：
+              {icon} {city}天气 {date} {weekday} · {temp}°C {text}</div>
+          </div>
+          <div class="field">
+            <label for="broadcast_body">正文模板</label>
+            <textarea id="broadcast_body" rows="17" spellcheck="false"></textarea>
+            <div class="hint">区块变量（{current} {air} {daily} {hourly} {indices} {warnings}）
+              在没数据时会自动留空，不会出现空标题。</div>
+          </div>
+        </div>
+
+        <div class="msg-pane hidden" data-pane="alert">
+          <div class="field">
+            <label for="alert_title">标题模板</label>
+            <input id="alert_title" type="text" spellcheck="false">
+            <div class="hint">留空即回到默认（含 {clock} 时刻）：
+              ⚠️ {city}{alert_type}预警（{alert_level}）· {clock} 发布</div>
+          </div>
+          <div class="field">
+            <label for="alert_body">正文模板</label>
+            <textarea id="alert_body" rows="10" spellcheck="false"></textarea>
+            <div class="hint">预警消息只有 {warnings} 区块和预警相关变量可用。</div>
+          </div>
+        </div>
+
+        <details class="vars">
+          <summary>可用变量</summary>
+          <div class="var-grid" id="varList"></div>
+        </details>
+      </div>
+
+      <aside class="msg-view">
+        <div class="mv-head">
+          <span class="mv-head-t">预览</span>
+          <div class="seg mv-styles hidden" id="pvStyles"></div>
+        </div>
+        <div class="mv-card" id="pvCard">
+          <div class="mv-title" id="pvTitle">—</div>
+          <pre class="mv-body" id="pvBody">正在生成预览…</pre>
+        </div>
+        <div class="mv-foot">
+          <span class="mv-note" id="pvNote"></span>
+          <button class="small" id="pvRefresh" type="button">刷新</button>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- 结果 -->
+  <section class="card hidden" id="output">
+    <h2 class="card-title">执行结果</h2>
+    <div id="outChips" style="margin-bottom:10px"></div>
+    <pre class="markdown hidden" id="outMd"></pre>
+    <div id="outErr" class="empty hidden"></div>
+  </section>
+
+  <!-- 访问密码 -->
+  <section class="card">
+    <h2 class="card-title">
+      <span>访问密码</span>
+      <span class="badge ok" id="authBadge">—</span>
+    </h2>
+
+    <label class="switch-line" for="auth_enabled">
+      <input type="checkbox" id="auth_enabled">
+      <span>启用设置页鉴权</span>
+      <span class="hint" id="authSession">登录状态保持 7 天</span>
+    </label>
+    <div class="hint" style="margin-top:8px" id="authNote">
+      关闭后任何能访问本服务的人都能查看和修改配置，只在可信内网里这么做。
+    </div>
+
+    <details class="vars" id="authPwSection" style="margin-top:14px">
+      <summary>修改访问密码</summary>
+      <div class="form-grid" style="margin-top:12px">
+        <div class="field full">
+          <label for="authOld">原密码</label>
+          <input id="authOld" type="password" autocomplete="current-password">
+        </div>
+        <div class="field">
+          <label for="authNew">新密码</label>
+          <input id="authNew" type="password" autocomplete="new-password" placeholder="至少 6 位">
+        </div>
+        <div class="field">
+          <label for="authNew2">再输一次</label>
+          <input id="authNew2" type="password" autocomplete="new-password">
+        </div>
+      </div>
+      <div class="svc-row">
+        <button id="authPwBtn" type="button">更新密码</button>
+        <span class="svc-state" id="authPwState"></span>
+      </div>
+      <div class="hint" style="margin-top:8px">
+        改密码会让其他设备已登录的会话立即失效，当前页面会自动续期。
+      </div>
+    </details>
+  </section>
+
+  <!-- 服务 -->
+  <section class="card" id="serverCard">
+    <h2 class="card-title">
+      <span>服务</span>
+      <span class="badge ok" id="portBadge">—</span>
+    </h2>
+    <p class="card-desc">
+      换端口后点「重启服务」才生效。重启是本进程原地重启（PID 不变），
+      配置、密钥和推送记录都不会丢。
+    </p>
+    <div class="form-grid">
+      <div class="field">
+        <label for="server_port">监听端口</label>
+        <input id="server_port" type="number" min="1024" max="65535" step="1" inputmode="numeric">
+        <div class="hint">1024–65535 · 监听地址由 server.host / --host 决定</div>
+      </div>
+      <div class="field">
+        <label>当前地址</label>
+        <div class="port-now"><a id="portLink" href="/">—</a></div>
+        <div class="hint" id="portState">—</div>
+      </div>
+    </div>
+    <div class="svc-row">
+      <button id="restartBtn" type="button">重启服务</button>
+      <span class="svc-state" id="restartState"></span>
+    </div>
+  </section>
+
+  <div class="savebar">
+    <span class="spacer"></span>
+    <span class="saved" id="saveState">改动失去焦点后自动保存</span>
+  </div>
+</div>
+
+<div class="toastbar" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+let toastTimer;
+let schedTimes = [];       // 当前编辑中的播报时间点（HH:MM）
+
+function toast(msg, kind = ""){
+  const t = $("toast");
+  t.textContent = msg;
+  t.className = "toastbar show " + kind;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = "toastbar " + kind; }, 3600);
+}
+
+async function api(path, body){
+  const opt = body === undefined ? {} : {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body)
+  };
+  const r = await fetch(path, opt);
+  if (r.status === 401){                 // 会话过期 / 未登录：统一回登录页
+    location.href = "/login";
+    throw new Error("登录已过期，正在跳转登录页");
+  }
+  return r.json();
+}
+
+/* ---------- 提醒通道：可添加多个实例（含同类多个），卡片动态渲染 ---------- */
+const CHANNEL_META = {
+  wecom:     {label: "企业微信机器人", desc: "群机器人 webhook"},
+  magicpush: {label: "MagicPush 魔法推送", desc: "统一接口，可再分发到多端"},
+};
+
+/* 按通道列表渲染所有卡片；卡片 DOM 上带 data-id，取值统一走 collectChannels() */
+function renderChannels(chans){
+  const list = chans || [];
+  $("chanList").innerHTML = list.map(ch => {
+    const meta = CHANNEL_META[ch.type] || {label: ch.type, desc: ""};
+    const id = esc(ch.id);
+    const isWecom = ch.type === "wecom";
+    const mt = ch.msg_type === "markdown" ? "markdown" : "text";
+    const roles = normRoles(ch.roles !== undefined ? ch.roles : ch.role);
+    return `
+    <div class="chan${ch.enabled ? " on" : ""}"
+         id="chan_${id}" data-id="${id}" data-type="${esc(ch.type)}">
+      <div class="chan-head">
+        <input type="checkbox" data-f="enabled" ${ch.enabled ? "checked" : ""}
+               aria-label="启用该通道">
+        <input class="chan-name" data-f="name" value="${esc(ch.name || meta.label)}"
+               aria-label="通道名称" spellcheck="false">
+        <div class="chan-roles" role="group" aria-label="通道用途（可多选）">
+          <button class="role-chip" type="button" data-role="prod"
+                  aria-pressed="${roles.includes("prod")}"
+                  title="接收定时播报与天气预警">正式</button>
+          <button class="role-chip" type="button" data-role="test"
+                  aria-pressed="${roles.includes("test")}"
+                  title="只接收「测试推送」，调格式不打扰正式群">测试</button>
+        </div>
+        <span class="chan-state">${ch.enabled ? "已启用" : "未启用"}</span>
+      </div>
+      <div class="chan-body">
+        <div class="hint chan-role-hint">${roleHint(roles)}</div>
+        ${isWecom ? `
+        <div class="field">
+          <label>Webhook 地址</label>
+          <input data-f="webhook" type="text" value="${esc(ch.webhook || "")}"
+                 placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...">
+          <div class="hint">企业微信群 → 群机器人 → 添加 → 复制 Webhook 地址</div>
+        </div>
+        <div class="field">
+          <label>消息类型</label>
+          <div class="seg">
+            <label><input type="radio" name="mt_${id}" value="text" ${mt === "text" ? "checked" : ""}><span>纯文本</span></label>
+            <label><input type="radio" name="mt_${id}" value="markdown" ${mt === "markdown" ? "checked" : ""}><span>Markdown</span></label>
+          </div>
+          <div class="hint">
+            <b>通过微信接收</b>企业微信消息时，微信不渲染 markdown，会露出
+            <code style="font-family:var(--mono)">##</code>
+            <code style="font-family:var(--mono)">**</code> 这些符号 → 选纯文本。<br>
+            只看企业微信客户端 → 选 Markdown，排版更清晰。
+          </div>
+        </div>` : `
+        <div class="field">
+          <label>服务地址</label>
+          <input data-f="base_url" type="text" value="${esc(ch.base_url || "")}"
+                 placeholder="http://192.168.1.100:8083">
+          <div class="hint">会自动拼接 <code style="font-family:var(--mono)">/api/push</code></div>
+        </div>
+        <div class="field">
+          <label>接口令牌</label>
+          <input data-f="token" type="password" value="${esc(ch.token || "")}"
+                 placeholder="接口管理 → 访问令牌">
+        </div>`}
+        <div class="svc-row chan-foot">
+          <span class="svc-state chan-test-state"></span>
+          <span class="chan-foot-btns">
+            <button class="small chan-test" type="button"
+                    title="向该通道自己的地址发一条「连通性测试」消息（不取天气、不渲染模板）">测试连通</button>
+            <button class="small chan-remove" type="button"
+                    title="删除该通道（已填写的凭据一并丢弃）">删除通道</button>
+          </span>
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+  $("chanEmpty").classList.toggle("hidden", list.length > 0);
+}
+
+/* 用途归一：老配置只有 role 单值，新配置是 roles 数组；空 → 正式 */
+function normRoles(v){
+  const arr = Array.isArray(v) ? v : [v];
+  const out = ["prod", "test"].filter(r => arr.map(x => String(x || "").toLowerCase()).includes(r));
+  return out.length ? out : ["prod"];
+}
+
+/* 用途说明：按勾选情况给一句人话 */
+function roleHint(roles){
+  const both = roles.includes("prod") && roles.includes("test");
+  if (both) return "两用通道：定时播报、天气预警和「测试推送」都会发到这里。";
+  if (roles.includes("test")) return "测试用途：只接收「测试推送」的消息，正式播报和天气预警不会发到这里。";
+  return "正式用途：接收定时播报与天气预警；「测试推送」不会发到这里。";
+}
+
+/* 从 DOM 读回所有通道的当前值（渲染顺序即提交顺序） */
+function collectChannels(){
+  return [...document.querySelectorAll("#chanList .chan")].map(card => {
+    const val = f => {
+      const el = card.querySelector(`[data-f="${f}"]`);
+      return el ? (el.type === "checkbox" ? el.checked : el.value.trim()) : "";
+    };
+    const ch = {id: card.dataset.id, type: card.dataset.type,
+                name: val("name"), enabled: val("enabled"),
+                roles: currentRoles(card)};
+    if (card.dataset.type === "wecom"){
+      ch.webhook = val("webhook");
+      const r = card.querySelector('input[type="radio"]:checked');
+      ch.msg_type = r ? r.value : "text";
+    } else {
+      ch.base_url = val("base_url");
+      ch.token = val("token");
+    }
+    return ch;
+  });
+}
+
+/* 启用勾选 → 卡片高亮与状态文字 */
+function syncChanCard(card){
+  const on = card.querySelector('[data-f="enabled"]').checked;
+  card.classList.toggle("on", on);
+  const st = card.querySelector(".chan-state");
+  st.textContent = on ? "已启用" : "未启用";
+  st.style.color = on ? "var(--ok)" : "";
+}
+
+/* 当前勾选的用途（正式 / 测试 可同时勾） */
+function currentRoles(card){
+  return [...card.querySelectorAll(".role-chip")]
+    .filter(b => b.getAttribute("aria-pressed") === "true")
+    .map(b => b.dataset.role);
+}
+
+/* 用途开关 → 说明文字跟着变（两个都点亮 = 两用通道） */
+function syncChanRoles(card){
+  const hint = card.querySelector(".chan-role-hint");
+  if (hint) hint.textContent = roleHint(currentRoles(card));
+}
+
+/* 添加菜单常驻：只列通道类型，用途（正式/测试）添加后在卡片上勾选 */
+function renderAddMenu(){
+  $("chanMenu").innerHTML = Object.entries(CHANNEL_META).map(([k, m]) => `
+    <button type="button" data-chan="${k}">＋ ${esc(m.label)}
+      <span class="cm-desc">${esc(m.desc)}</span></button>`).join("");
+  $("chanMenu").classList.add("hidden");
+}
+$("chanAddBtn").onclick = () => $("chanMenu").classList.toggle("hidden");
+/* 点菜单外面收起 */
+document.addEventListener("click", e => {
+  if (!e.target.closest("#chanAddWrap")) $("chanMenu").classList.add("hidden");
+});
+
+$("chanMenu").addEventListener("click", async e => {
+  const btn = e.target.closest("button[data-chan]");
+  if (!btn) return;
+  const type = btn.dataset.chan;
+  btn.disabled = true;
+  try{
+    const r = await api("/api/channel/add", {type});
+    if (!r.ok){ toast(r.error || "添加失败", "err"); return; }
+    toast(`已添加 ${CHANNEL_META[type].label}，填好凭据并选好「正式 / 测试」即可`, "ok");
+    await flushSave();                        // 先把防抖里的未保存输入写盘（按 id 合并，不会冲掉新通道）
+    await loadState();                        // 再重新渲染，显示新通道卡片
+    const el = $("chan_" + r.id);
+    if (el){
+      el.classList.add("flash");
+      el.scrollIntoView({block: "center", behavior: "smooth"});
+      setTimeout(() => el.classList.remove("flash"), 1800);
+    }
+  }catch(err){ toast("添加失败：" + err.message, "err"); }
+  finally{ btn.disabled = false; }
+});
+
+async function removeChannel(card){
+  const id = card.dataset.id;
+  const name = (card.querySelector('[data-f="name"]') || {}).value ||
+               "该通道";
+  if (!confirm(`删除「${name}」通道？\n已填写的凭据会一并丢弃，删除后立即生效。`)) return;
+  try{
+    const r = await api("/api/channel/remove", {id});
+    if (!r.ok){ toast(r.error || "删除失败", "err"); return; }
+    // 先把卡片从 DOM 摘掉再保存：否则 flushSave 提交的整页快照里还带着它，
+    // 服务端会把它当成新通道加回来（表现为「删了还在」）
+    card.remove();
+    toast("通道已删除", "ok");
+    await flushSave();
+    await loadState();
+  }catch(e){ toast("删除失败：" + e.message, "err"); }
+}
+
+/* 通道卡片内的事件委托：取值 / 保存 / 预览 / 测试 / 删除 */
+$("chanList").addEventListener("click", e => {
+  const card = e.target.closest(".chan");
+  if (!card) return;
+  const chip = e.target.closest(".role-chip");
+  if (chip){                              // 用途开关：点一下切换，两个都点亮 = 两用
+    const on = chip.getAttribute("aria-pressed") === "true";
+    if (on && currentRoles(card).length === 1){
+      toast("至少保留一个用途：正式或测试", "err");
+      return;
+    }
+    chip.setAttribute("aria-pressed", on ? "false" : "true");
+    syncChanRoles(card);
+    schedulePreview(200);                 // 用途影响预览与测试推送的落点
+    queueSave();
+    return;
+  }
+  if (e.target.closest(".chan-remove")) removeChannel(card);
+  else if (e.target.closest(".chan-test")) testChannel(card);
+});
+
+$("chanList").addEventListener("change", e => {
+  const card = e.target.closest(".chan");
+  if (!card) return;
+  if (e.target.matches('[data-f="enabled"]')){
+    syncChanCard(card);
+    schedulePreview(200);       // 通道开关影响预览风格
+  } else if (e.target.matches('input[type="radio"]')){
+    schedulePreview(200);       // 消息类型影响预览风格
+  }
+  queueSave();
+});
+$("chanList").addEventListener("input", e => {
+  if (!e.target.closest(".chan")) return;
+  queueSave();
+});
+
+/* 单通道连通性测试：发一条极简消息，不取天气、不渲染模板 */
+async function testChannel(card){
+  const btn = card.querySelector(".chan-test");
+  const state = card.querySelector(".chan-test-state");
+  const name = card.querySelector('[data-f="name"]').value || "该通道";
+  if (!confirm(`向「${name}」发一条「连通性测试」消息？\n会真实发到对应的群 / 推送端。`)) return;
+  btn.disabled = true;
+  state.textContent = "发送中…";
+  state.className = "svc-state chan-test-state";
+  try{
+    const r = await api("/api/test-channel", {id: card.dataset.id, config: collect()});
+    if (r.ok){
+      state.textContent = "已发出，收到即通道正常";
+      state.className = "svc-state chan-test-state ok";
+      toast("测试消息已发出", "ok");
+    } else {
+      state.textContent = r.error || "发送失败";
+      state.className = "svc-state chan-test-state err";
+      toast(r.error || "发送失败", "err");
+    }
+  }catch(e){
+    state.textContent = "发送失败：" + e.message;
+    state.className = "svc-state chan-test-state err";
+  }
+  btn.disabled = false;
+}
+
+/* 和风 API 连通性测试：真实调用一次 GeoAPI（用页面上尚未保存的凭据） */
+$("qwTestBtn").onclick = async () => {
+  const btn = $("qwTestBtn");
+  const st = $("qwTestState");
+  btn.disabled = true;
+  st.textContent = "测试中…（正在请求和风 GeoAPI）";
+  st.style.color = "";
+  try{
+    const r = await api("/api/test-qweather", {config: collect()});
+    st.textContent = (r.ok ? "✓ " : "✗ ") + (r.detail || r.error || "测试失败");
+    st.style.color = r.ok ? "var(--ok)" : "var(--danger)";
+  }catch(e){
+    st.textContent = "✗ 测试失败：" + e.message;
+    st.style.color = "var(--danger)";
+  }
+  btn.disabled = false;
+};
+
+/* ---------- 填充表单 ---------- */
+function fill(cfg, status){
+  STATUS = status || STATUS;
+  const qw = cfg.qweather || {};
+  $("api_host").value = qw.api_host || "";
+  $("credential_id").value = qw.credential_id || "";
+  $("project_id").value = qw.project_id || "";
+  $("location").value = cfg.location || "";
+  $("location_name").value = cfg.location_name || "";
+  $("location_admin").value = cfg.location_admin || "";
+
+  renderChannels((cfg.push || {}).channels || []);
+
+  // 消息模板：没存过就用后端给的默认值
+  const msg = cfg.message || {};
+  const defs = (status && status.message_defaults) || {};
+  ["broadcast_title", "broadcast_body", "alert_title", "alert_body"].forEach(k => {
+    $(k).value = msg[k] ?? defs[k] ?? "";
+  });
+  if (status && status.placeholders && !$("varList").dataset.done){
+    $("varList").innerHTML = status.placeholders.map(p =>
+      `<div><code>${esc(p.token)}</code> ${esc(p.desc)}</div>`).join("");
+    $("varList").dataset.done = "1";
+  }
+
+  $("hourly_hours").value = cfg.hourly_hours ?? 6;
+  $("forecast_days").value = String(cfg.forecast_days ?? 7);
+  $("alert_min_level").value = cfg.alert_min_level || "蓝色";
+  $("alert_resend_hours").value = cfg.alert_resend_hours ?? 6;
+  $("alert_types").value = (cfg.alert_types || []).join(",");
+  $("server_port").value = (cfg.server || {}).port ?? 18770;
+  const picked = String(cfg.indices_types || "").split(",").map(s => s.trim());
+  document.querySelectorAll("#indicesChecks input").forEach(cb => {
+    cb.checked = picked.includes(cb.value);
+  });
+
+  renderAddMenu();
+
+  if (status){
+    const key = status.key || {};
+    const badge = $("keyBadge");
+    badge.textContent = key.exists ? "私钥已就绪" : "私钥缺失";
+    badge.className = "badge " + (key.exists ? "ok" : "no");
+    $("pubKey").textContent = key.public_key || "（未生成）";
+
+    const loc = status.location || {};
+    const src = {ip: "IP 自动定位", manual: "手动设置"}[loc.source] || "未设置";
+    const bits = [src];
+    if (loc.updated) bits.push("更新于 " + loc.updated.slice(5, 16));
+    // 顺序与位置值输入框一致：经度在前，纬度在后
+    if (loc.lat != null && loc.lon != null) bits.push(`经度 ${loc.lon} · 纬度 ${loc.lat}`);
+    if (loc.ip) bits.push("出口 IP " + loc.ip);
+    $("locState").textContent = bits.join(" · ") + (loc.note ? "　⚠️ " + loc.note : "");
+
+    if (status.server) syncServer(status.server);
+  }
+
+  // 访问密码：/api/state 只回非敏感字段，密钥不下发
+  const auth = cfg.auth || {};
+  $("auth_enabled").checked = auth.enabled !== false;
+  const hours = Number(auth.session_hours || 168);
+  $("authSession").textContent = `登录状态保持 ${Math.round(hours / 24)} 天`;
+  $("logoutBtn").classList.toggle("hidden", auth.enabled === false);
+
+  // 定时播报 / 预警轮询
+  const sch = cfg.schedule || {};
+  $("schedule_enabled").checked = !!sch.enabled;
+  $("warning_enabled").checked = !!sch.warning_enabled;
+  $("warning_interval").value = Number(sch.warning_interval_min || 10);
+  schedTimes = (sch.times || []).slice();
+  renderTimes();
+  syncSchedBadge();
+
+  syncRequired();
+}
+
+/* 服务端口：当前实际监听 vs 表单里待生效的值 */
+function syncServer(sv){
+  const run = sv.port;
+  const badge = $("portBadge");
+  badge.textContent = "运行中 · " + run;
+  badge.className = "badge ok";
+  const link = $("portLink");
+  const here = `${location.protocol}//${location.hostname}:${run}`;
+  link.textContent = here;
+  link.href = `${here}/`;
+  const want = Number($("server_port").value);
+  const state = (!Number.isInteger(want) || want <= 0)
+    ? "端口填写有误"
+    : (want === run ? "与当前一致" : `改为 ${want} 后重启生效`);
+  $("portState").textContent = state + (sv.host ? ` · 监听 ${sv.host}` : "");
+}
+
+/* 位置值 → {经度, 纬度}；不是坐标、顺序反了或越界都返回 null */
+function parseLoc(v){
+  const parts = String(v || "").replace(/，/g, ",").replace(/\s/g, "").split(",");
+  if (parts.length !== 2) return null;
+  const lon = Number(parts[0]), lat = Number(parts[1]);
+  if (!isFinite(lon) || !isFinite(lat)) return null;
+  if (Math.abs(lon) > 180 || Math.abs(lat) > 90) return null;
+  return {lon, lat};
+}
+
+/* 位置值被改过 → 状态行即时反映，并校验顺序（保存后由 fill 覆盖回正式状态） */
+function syncLocState(){
+  const v = $("location").value.trim();
+  const bits = ["待保存"];
+  const pair = parseLoc(v);
+  if (pair) bits.push(`经度 ${pair.lon} · 纬度 ${pair.lat}`);
+  else if (/^\d+$/.test(v)) bits.push("和风 LocationID");
+  else if (/[,，]/.test(v)) bits.push("⚠️ 顺序应为「经度,纬度」，例 112.19,30.35");
+  $("locState").textContent = bits.join(" · ");
+}
+
+/* 必填项（和风三项）没填时在标题后显示红色星号 */
+function syncRequired(){
+  document.querySelectorAll("[data-req]").forEach(mark => {
+    const inp = document.getElementById(mark.dataset.req);
+    mark.classList.toggle("hidden", !inp || inp.value.trim() !== "");
+  });
+}
+document.addEventListener("input", syncRequired);
+
+/* ---------- 收集表单 ---------- */
+function collect(){
+  const indices = [...document.querySelectorAll("#indicesChecks input:checked")]
+    .map(cb => cb.value);
+  return {
+    server: { port: Number($("server_port").value || 0) },
+    auth: { enabled: $("auth_enabled").checked },
+    schedule: { enabled: $("schedule_enabled").checked,
+                 times: schedTimes.slice(),
+                 warning_enabled: $("warning_enabled").checked,
+                 warning_interval_min: Number($("warning_interval").value || 10) },
+    qweather: {
+      api_host: $("api_host").value.trim(),
+      credential_id: $("credential_id").value.trim(),
+      project_id: $("project_id").value.trim()
+    },
+    location: $("location").value.trim(),
+    location_name: $("location_name").value.trim(),
+    location_admin: $("location_admin").value,
+    hourly_hours: Number($("hourly_hours").value || 6),
+    forecast_days: Number($("forecast_days").value || 7),
+    indices_types: indices.join(","),
+    alert_min_level: $("alert_min_level").value,
+    alert_resend_hours: Number($("alert_resend_hours").value || 6),
+    alert_types: $("alert_types").value.split(/[,，\s]+/).filter(Boolean),
+    push: { channels: collectChannels() },
+    message: {
+      broadcast_title: $("broadcast_title").value,
+      broadcast_body: $("broadcast_body").value,
+      alert_title: $("alert_title").value,
+      alert_body: $("alert_body").value
+    }
+  };
+}
+
+/* ---------- 结果展示 ---------- */
+function showOutput(chips, markdown, error){
+  $("output").classList.remove("hidden");
+  $("outChips").innerHTML = (chips || []).map(([text, kind]) =>
+    `<span class="out-chip ${kind || ""}">${esc(text)}</span>`).join("");
+  const md = $("outMd");
+  if (markdown){ md.textContent = markdown; md.classList.remove("hidden"); }
+  else md.classList.add("hidden");
+  const err = $("outErr");
+  if (error){ err.textContent = error; err.classList.remove("hidden"); }
+  else err.classList.add("hidden");
+}
+
+function setSaved(text, isErr){
+  const el = $("saveState");
+  el.textContent = text;
+  el.className = "saved" + (isErr ? " err" : "");
+}
+
+/* ---------- 加载 ---------- */
+async function loadState(){
+  const s = await api("/api/state");
+  fill(s.config, s.status);
+}
+
+/* ---------- 消息模板 + 实时预览 ---------- */
+let STATUS = null;
+let pvList = [];        // [{key,label,style,title,body}]
+let pvKey = "";         // 当前选中的预览风格
+let pvTimer = 0;
+let pvSeq = 0;          // 请求序号：只认最后一次，防止旧响应覆盖新结果
+let pvMeta = null;      // {extra: [...], time: "16:05:38"}，风格标签单独取当前项
+let pvReady = false;    // 首屏 fill 完成前不自动预览
+
+function msgMode(){
+  const r = document.querySelector('input[name="msg_tab"]:checked');
+  return r ? r.value : "broadcast";
+}
+
+/* 底部说明：当前风格 + 数据来源 + 生成时间 */
+function pvNoteLine(){
+  const cur = pvList.find(x => x.key === pvKey) || pvList[0];
+  const bits = [];
+  if (cur) bits.push(cur.label);
+  if (pvMeta) bits.push(...pvMeta.extra, pvMeta.time);
+  return bits.join(" · ");
+}
+
+function paintPreview(){
+  const t = $("pvTitle"), b = $("pvBody");
+  const p = pvList.find(x => x.key === pvKey) || pvList[0];
+  // 企业微信通道没有标题字段，标题已并入正文首行，这里不再重复显示
+  t.textContent = p ? (p.inline ? "标题已并入正文首行（企业微信无标题字段）"
+                                : (p.title || "")) : "";
+  b.classList.remove("is-empty", "is-error");
+  if (!p){ b.textContent = ""; b.classList.add("is-empty"); }
+  else if (!p.body){ b.textContent = "（正文为空）"; b.classList.add("is-empty"); }
+  else b.textContent = p.body;
+  $("pvNote").textContent = pvNoteLine();
+}
+
+function previewError(msg){
+  pvList = []; pvKey = ""; pvMeta = null;
+  const box = $("pvStyles");
+  box.innerHTML = ""; box.classList.add("hidden");
+  $("pvTitle").textContent = "";
+  const b = $("pvBody");
+  b.classList.remove("is-empty");
+  b.classList.add("is-error");
+  b.textContent = msg;
+  $("pvNote").textContent = "预览生成失败";
+}
+
+async function refreshPreview(){
+  if (!pvReady) return;
+  const seq = ++pvSeq;
+  $("pvCard").classList.add("mv-busy");
+  $("pvNote").textContent = "正在生成…";
+  try{
+    const r = await api("/api/message", {config: collect(), mode: msgMode()});
+    if (seq !== pvSeq) return;               // 已有更新的请求，丢弃这次
+    if (!r.ok){ previewError(r.error || "生成失败"); return; }
+
+    const list = r.previews || [];
+    const box = $("pvStyles");
+    if (list.length > 1){
+      if (!list.some(p => p.key === pvKey)) pvKey = list[0].key;
+      box.innerHTML = list.map(p =>
+        `<label><input type="radio" name="pv_style" value="${esc(p.key)}"${p.key === pvKey ? " checked" : ""}><span>${esc(p.label)}</span></label>`).join("");
+      box.classList.remove("hidden");
+    } else {
+      pvKey = list.length ? list[0].key : "";
+      box.innerHTML = ""; box.classList.add("hidden");
+    }
+    pvList = list;
+
+    const extra = [];
+    if (r.sample) extra.push("示例预警数据");
+    else if (r.source) extra.push(r.source);
+    if (r.cached) extra.push("天气数据来自缓存");
+    pvMeta = {extra, time: new Date().toLocaleTimeString("zh-CN", {hour12: false})};
+    paintPreview();
+  }catch(e){
+    if (seq !== pvSeq) return;
+    previewError("生成失败：" + e.message);
+  }finally{
+    if (seq === pvSeq) $("pvCard").classList.remove("mv-busy");
+  }
+}
+
+function schedulePreview(delay = 700){
+  clearTimeout(pvTimer);
+  pvTimer = setTimeout(refreshPreview, delay);
+}
+
+$("msgTabs").addEventListener("change", e => {
+  const v = e.target.value;
+  document.querySelectorAll(".msg-pane").forEach(p => {
+    p.classList.toggle("hidden", p.dataset.pane !== v);
+  });
+  schedulePreview(0);
+});
+
+$("pvStyles").addEventListener("change", e => {
+  if (e.target.name !== "pv_style") return;
+  pvKey = e.target.value;
+  paintPreview();
+});
+
+["broadcast_title", "broadcast_body", "alert_title", "alert_body"].forEach(k => {
+  $(k).addEventListener("input", () => schedulePreview());
+});
+
+/* 通道内字段的变化在 chanList 的委托监听里触发预览与保存 */
+
+/* 播报内容也会改变预览（条数 / 天数 / 生活指数） */
+["hourly_hours", "forecast_days"].forEach(id => {
+  $(id).addEventListener("change", () => schedulePreview(200));
+});
+document.querySelectorAll("#indicesChecks input").forEach(cb => {
+  cb.addEventListener("change", () => schedulePreview(200));
+});
+
+$("pvRefresh").onclick = () => refreshPreview();
+
+$("resetMsg").onclick = () => {
+  const defs = (STATUS && STATUS.message_defaults) || {};
+  if (!Object.keys(defs).length){ toast("默认模板还没加载，请刷新页面", "warn"); return; }
+  ["broadcast_title", "broadcast_body", "alert_title", "alert_body"].forEach(k => {
+    $(k).value = defs[k] || "";
+  });
+  toast("已恢复默认模板", "ok");
+  schedulePreview(0);
+  queueSave();
+};
+
+/* ---------- 定时播报 ---------- */
+function renderTimes(){
+  const box = $("schedTimes");
+  if (!schedTimes.length){
+    box.innerHTML = '<span class="sched-empty">未设置时间点</span>';
+    return;
+  }
+  box.innerHTML = schedTimes.map((t, i) =>
+    `<span class="sched-chip">${esc(t)}<button type="button" data-i="${i}" title="删除">×</button></span>`
+  ).join("");
+}
+
+function syncSchedBadge(){
+  const onB = $("schedule_enabled").checked;
+  const onW = $("warning_enabled").checked;
+  const parts = [];
+  if (onB) parts.push(schedTimes.length ? `日常 ${schedTimes.length} 个点` : "日常缺时间点");
+  if (onW) parts.push(`预警 ${Number($("warning_interval").value || 10)} 分钟`);
+  const badge = $("schedBadge");
+  const ok = parts.length > 0 && !(onB && !schedTimes.length);
+  badge.textContent = parts.length ? "已启用 · " + parts.join(" / ") : "未启用";
+  badge.className = "badge " + (ok ? "ok" : "no");
+}
+
+function paintScheduleStatus(s){
+  const on = s.enabled && s.times.length > 0;
+  const bits = [on ? `下次播报：${s.next.label || "—"}（北京时间）`
+                   : "日常播报未启用"];
+  if (s.last_fired) bits.push(`上次触发：${s.last_fired}`);
+  const lr = s.last_run;
+  if (lr) bits.push(`最近一次推送：${lr.time} ${lr.ok ? "✓" : "✗ " + (lr.error || "")}`);
+
+  const changed =
+    $("schedule_enabled").checked !== s.enabled ||
+    schedTimes.slice().sort().join(",") !== (s.times || []).slice().sort().join(",") ||
+    $("warning_enabled").checked !== !!s.warning_enabled ||
+    Number($("warning_interval").value || 10) !== Number(s.warning_interval_min || 10);
+  if (changed) bits.push("⚠️ 有未保存的改动");
+  $("schedState").textContent = bits.join("　·　");
+
+  const wbits = [s.warning_enabled
+    ? `每 ${s.warning_interval_min || 10} 分钟检查一次（北京时间）`
+    : "预警轮询未启用"];
+  if (s.warning_enabled && s.warning_next) wbits.push(`下次检查：${s.warning_next}`);
+  if (s.warning_last_result) wbits.push(`上次结果：${s.warning_last_result}`);
+  if (changed) wbits.push("⚠️ 有未保存的改动");
+  $("warnState").textContent = wbits.join("　·　");
+}
+
+async function refreshSchedule(){
+  try{
+    paintScheduleStatus(await api("/api/schedule"));
+  }catch(e){
+    $("schedState").textContent = "定时播报状态读取失败：" + e.message;
+  }
+}
+
+/* ---------- 访问密码 ---------- */
+async function refreshAuthStatus(){
+  try{
+    const s = await api("/api/auth/status");
+    const badge = $("authBadge");
+    badge.textContent = !s.enabled ? "已关闭" : (s.has_password ? "已开启" : "未设密码");
+    badge.className = "badge " + (!s.enabled || !s.has_password ? "no" : "ok");
+    $("authPwSection").classList.toggle("hidden", !s.has_password);
+    $("logoutBtn").classList.toggle("hidden", !s.enabled || !s.logged_in);
+  }catch(e){ /* 401 已在 api() 里跳转登录页 */ }
+}
+
+function setAuthPw(text, kind){
+  const el = $("authPwState");
+  el.textContent = text;
+  el.className = "svc-state" + (kind ? " " + kind : "");
+}
+
+$("schedAdd").onclick = () => {
+  const v = $("schedTime").value;
+  if (!v){ toast("先选一个时间", "warn"); return; }
+  if (schedTimes.includes(v)){ toast("这个时间点已添加", "warn"); return; }
+  if (schedTimes.length >= 12){ toast("最多 12 个时间点", "warn"); return; }
+  schedTimes.push(v); schedTimes.sort();
+  renderTimes(); syncSchedBadge(); queueSave();
+};
+
+$("schedTimes").onclick = e => {
+  const btn = e.target.closest("button[data-i]");
+  if (!btn) return;
+  schedTimes.splice(Number(btn.dataset.i), 1);
+  renderTimes(); syncSchedBadge(); queueSave();
+};
+
+$("schedule_enabled").addEventListener("change", syncSchedBadge);
+$("warning_enabled").addEventListener("change", syncSchedBadge);
+$("warning_interval").addEventListener("input", syncSchedBadge);
+
+$("warnRun").onclick = async () => {
+  if (!confirm("立即检查一次预警？\n只有新预警才会推送，已有预警不会重复发。")) return;
+  const btn = $("warnRun");
+  btn.disabled = true;
+  setSvcState("warnRunState", "正在检查…", "");
+  try{
+    const r = await api("/api/run-warning", {config: collect()});
+    if (r.ok){
+      setSvcState("warnRunState", r.sent ? "已推送新预警" : "无新增预警", "ok");
+      toast(r.sent ? "新预警已推送" : "没有新预警", "ok");
+    } else {
+      setSvcState("warnRunState", r.error || "检查失败", "err");
+      toast(r.error || "检查失败", "err");
+    }
+    await refreshSchedule();
+  }catch(e){ setSvcState("warnRunState", "检查失败：" + e.message, "err"); }
+  btn.disabled = false;
+};
+
+$("schedRun").onclick = async () => {
+  if (!confirm("立即按当前配置播报一次？\n会真的推送到所有已启用通道，请确认不是误点。")) return;
+  const btn = $("schedRun");
+  btn.disabled = true;
+  setSvcState("schedRunState", "正在播报…", "");
+  try{
+    const r = await api("/api/run", {config: collect()});
+    if (r.ok){
+      setSvcState("schedRunState", "已推送：" + (r.title || "成功"), "ok");
+      toast("播报已推送", "ok");
+    } else {
+      setSvcState("schedRunState", r.error || "播报失败", "err");
+      toast(r.error || "播报失败", "err");
+    }
+    await refreshSchedule();
+  }catch(e){ setSvcState("schedRunState", "播报失败：" + e.message, "err"); }
+  btn.disabled = false;
+};
+
+$("auth_enabled").addEventListener("change", async () => {
+  const want = $("auth_enabled").checked;
+  try{
+    const r = await api("/api/auth/toggle", {enabled: want});
+    if (!r.ok){
+      $("auth_enabled").checked = !want;
+      toast(r.error || "切换失败", "err");
+    } else {
+      toast(r.message || (want ? "鉴权已开启" : "鉴权已关闭"), want ? "ok" : "warn");
+      await refreshAuthStatus();
+    }
+  }catch(e){
+    $("auth_enabled").checked = !want;
+    toast("切换失败：" + e.message, "err");
+  }
+});
+
+$("authPwBtn").onclick = async () => {
+  const old = $("authOld").value, nw = $("authNew").value, nw2 = $("authNew2").value;
+  if (nw.length < 6){ setAuthPw("新密码至少 6 位", "err"); return; }
+  if (nw !== nw2){ setAuthPw("两次输入的新密码不一致", "err"); return; }
+  const btn = $("authPwBtn");
+  btn.disabled = true;
+  setAuthPw("正在更新…", "");
+  try{
+    const r = await api("/api/auth/password",
+                         {old_password: old, new_password: nw});
+    if (r.ok){
+      setAuthPw("密码已更新", "ok");
+      $("authOld").value = $("authNew").value = $("authNew2").value = "";
+      toast("访问密码已更新", "ok");
+    } else setAuthPw(r.error || "更新失败", "err");
+  }catch(e){ setAuthPw("更新失败：" + e.message, "err"); }
+  btn.disabled = false;
+};
+
+$("logoutBtn").onclick = async () => {
+  try{ await api("/api/auth/logout", {}); }catch(e){}
+  location.href = "/login";
+};
+
+/* 通用的小状态行写入（服务重启 / 定时播报 / 改密共用） */
+function setSvcState(id, text, kind){
+  const el = $(id);
+  el.textContent = text || "";
+  el.className = "svc-state" + (kind ? " " + kind : "");
+}
+
+/* ---------- 自动保存：表单改动失去焦点即写盘（端口走「重启服务」） ---------- */
+let saving = false, savePending = false, saveTimer = 0;
+
+function queueSave(){
+  if (saving){ savePending = true; return; }
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(doSave, 350);   // 短防抖，合并 blur + change 连发
+}
+
+async function doSave(){
+  saving = true;
+  try{
+    const r = await api("/api/config", {config: collect()});
+    if (r.ok){
+      setSaved("已自动保存 · " + new Date().toLocaleTimeString("zh-CN", {hour12: false}));
+      // 用服务端归一化后的值回填（不动正在编辑的输入框）
+      const ae = document.activeElement;
+      if (!(ae && ae.matches && ae.matches("input, textarea, select")))
+        fill(await api("/api/state").then(x => x.config), r.status);
+    } else {
+      setSaved(r.errors.join("；"), true);
+      toast("已保存，但还有未完成项", "warn");
+    }
+    refreshSchedule();          // 重算「下次播报」，清掉「未保存」提示
+  }catch(e){ setSaved("保存失败：" + e.message, true); }
+  saving = false;
+  if (savePending){ savePending = false; doSave(); }
+}
+
+/* 把防抖中的保存立即写盘（添加/删除通道前调用，避免重渲染丢输入） */
+async function flushSave(){
+  if (saveTimer){ clearTimeout(saveTimer); saveTimer = 0; }
+  if (saving){ savePending = true; return; }   // 在途那轮已包含当前 DOM 值
+  await doSave();
+}
+
+/* 端口由「重启服务」专门保存；鉴权开关/改密走 /api/auth/* 专用接口 */
+document.addEventListener("change", e => {
+  const el = e.target;
+  if (!el || !el.matches || !el.matches("input, select, textarea")) return;
+  if (el.id === "server_port") return;
+  if (el.id === "auth_enabled") return;
+  if (el.name === "msg_tab" || el.name === "pv_style") return;   // 预览切换，非配置
+  if (el.closest("#authPwSection")) return;                      // 改密走专用接口
+  if (el.id === "locQ" || el.id === "schedTime") return;         // 搜索框 / 时间选择器
+  queueSave();
+});
+
+$("testBtn").onclick = async () => {
+  const btn = $("testBtn");
+  btn.disabled = true;
+  btn.textContent = "发送中…";
+  try{
+    const r = await api("/api/test", {config: collect()});
+    if (r.errors && r.errors.length){
+      showOutput([], "", r.errors.join("；"));
+      toast(r.errors[0], "warn");
+    } else {
+      // 两条消息 × 各通道，逐条给结果
+      const chips = (r.channels || []).map(c =>
+        [`${c.message} · ${c.channel}` + (c.ok ? " ✓" : " ✗ " + (c.error || "")),
+         c.ok ? "ok" : "err"]);
+      // inline = 企业微信通道，标题已在正文首行，不再重复拼一次
+      const md = (r.messages || []).map(m =>
+        m.inline ? `【${m.label}】\n${m.body}`
+                 : `【${m.label}】${m.title}\n\n${m.body}`
+      ).join("\n\n" + "—".repeat(20) + "\n\n");
+      showOutput(chips, md);
+      const n = (r.messages || []).length;
+      toast(r.ok ? `已发出 ${n} 条测试消息` : "部分通道失败", r.ok ? "ok" : "err");
+    }
+  }catch(e){ toast("测试失败：" + e.message, "err"); }
+  btn.textContent = "测试推送";
+  btn.disabled = false;
+};
+
+$("geoBtn").onclick = async () => {
+  const btn = $("geoBtn");
+  btn.disabled = true;
+  toast("正在按公网 IP 定位…");
+  try{
+    const r = await api("/api/geoip", {apply: true});
+    if (r.ok){
+      fill((await api("/api/state")).config, r.status);
+      toast(r.geo.warn ? `定位到 ${r.geo.city}，${r.geo.warn}` : `已定位到 ${r.geo.city}`,
+            r.geo.warn ? "warn" : "ok");
+    } else toast(r.error || "定位失败", "err");
+  }catch(e){ toast("定位失败：" + e.message, "err"); }
+  btn.disabled = false;
+};
+
+/* ---------- 城市搜索（精确到区县） ---------- */
+let cityItems = [];
+let citySeq = 0;
+
+/* GeoAPI 的 name 不带「区/县」后缀，拼上省/市才不歧义 */
+function cityAdm(it){
+  const parts = [it.adm1, it.adm2].filter((x, i, a) => x && x !== it.name && a.indexOf(x) === i);
+  if (it.country && it.country !== "中国") parts.push(it.country);
+  return parts.join(" · ");
+}
+
+function renderCityList(items){
+  cityItems = items || [];
+  if (!cityItems.length){
+    $("locList").innerHTML = "";
+    $("locHint").textContent = "没有匹配的城市，换个说法试试（可以去掉「市」「县」后缀）。";
+    return;
+  }
+  $("locList").innerHTML = cityItems.map((it, i) =>
+    `<button class="lp-item" type="button" data-i="${i}">
+       <span class="lp-name">${esc(it.name)}</span>
+       <span class="lp-adm">${esc(cityAdm(it))}</span></button>`).join("");
+  $("locHint").textContent = `共 ${cityItems.length} 个结果，点一个填进下面两项`;
+}
+
+async function searchCity(){
+  const q = $("locQ").value.trim();
+  if (!q){ $("locList").innerHTML = ""; cityItems = [];
+           $("locHint").textContent = "输入城市名再搜索，例如「公安县」。"; return; }
+  const seq = ++citySeq;
+  $("locHint").textContent = "搜索中…";
+  try{
+    // 带上表单里尚未保存的凭据，免得先保存才能搜
+    const r = await api("/api/city", {keyword: q, config: collect()});
+    if (seq !== citySeq) return;
+    if (!r.ok){
+      cityItems = []; $("locList").innerHTML = "";
+      $("locHint").textContent = r.error || "搜索失败";
+      return;
+    }
+    renderCityList(r.items);
+  }catch(e){
+    if (seq !== citySeq) return;
+    $("locHint").textContent = "搜索失败：" + e.message;
+  }
+}
+
+function pickCity(it){
+  $("location_name").value = it.name || "";
+  $("location").value = `${Number(it.lon).toFixed(2)},${Number(it.lat).toFixed(2)}`;
+  $("location_admin").value = cityAdm(it);
+  $("locList").innerHTML = "";
+  cityItems = [];
+  $("locHint").textContent = `已选 ${it.name}（${cityAdm(it)}）`;
+  syncLocState();          // 状态行立刻跟上，别让人以为没生效
+  syncRequired();
+  schedulePreview(300);   // 换了城市，右侧预览跟着变
+  queueSave();
+}
+
+$("locSearch").onclick = searchCity;
+$("locQ").addEventListener("keydown", e => {
+  if (e.key === "Enter"){ e.preventDefault(); searchCity(); }
+});
+$("locList").onclick = e => {
+  const btn = e.target.closest(".lp-item");
+  if (btn) pickCity(cityItems[Number(btn.dataset.i)]);
+};
+
+/* 手动改了城市名或位置值 → 旧「所属区域」就过期了，清掉 */
+["location_name", "location"].forEach(id => {
+  $(id).addEventListener("input", () => {
+    $("location_admin").value = "";
+    syncLocState();
+  });
+});
+
+$("copyPub").onclick = async () => {  const text = $("pubKey").textContent;
+  if (!text || text.includes("未生成")){ toast("还没有公钥", "warn"); return; }
+  try{
+    await navigator.clipboard.writeText(text);
+    toast("公钥已复制", "ok");
+  }catch(e){
+    const r = document.createRange();
+    r.selectNodeContents($("pubKey"));
+    const sel = getSelection();
+    sel.removeAllRanges(); sel.addRange(r);
+    toast("请按 ⌘C 复制", "warn");
+  }
+};
+
+/* ---------- 服务：换端口 / 重启 ---------- */
+function setRestart(text, kind){
+  const el = $("restartState");
+  el.textContent = text || "";
+  el.className = "svc-state" + (kind ? " " + kind : "");
+}
+
+$("server_port").addEventListener("input", () => {
+  if (STATUS && STATUS.server) syncServer(STATUS.server);
+});
+
+/* 新端口可能换了 origin，普通 fetch 会被 CORS 挡住，用 no-cors 只探连通性 */
+async function waitUp(base, timeoutMs){
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs){
+    try{
+      await fetch(`${base}/favicon.ico?_=${Date.now()}`, {mode: "no-cors", cache: "no-store"});
+      return true;
+    }catch(e){
+      await new Promise(r => setTimeout(r, 350));
+    }
+  }
+  return false;
+}
+
+$("restartBtn").onclick = async () => {
+  const btn = $("restartBtn");
+  const port = Number($("server_port").value);
+  if (!Number.isInteger(port) || port < 1024 || port > 65535){
+    toast("端口需在 1024–65535 之间", "warn");
+    $("server_port").focus();
+    return;
+  }
+  btn.disabled = true;
+  setRestart("正在保存配置并重启…");
+  const base = `${location.protocol}//${location.hostname}:${port}`;
+  try{
+    const r = await api("/api/restart", {config: collect()});
+    if (!r.ok){
+      setRestart(r.error || "重启失败", "err");
+      toast(r.error || "重启失败", "err");
+      btn.disabled = false;
+      return;
+    }
+    setRestart(r.changed ? `端口已改为 ${r.port}，等待服务就绪…` : "正在重启，等待服务就绪…");
+  }catch(e){
+    // 响应没回来（进程已经换代）不算失败，继续等端口
+    setRestart("正在重启，等待服务就绪…");
+  }
+  const target = `${location.protocol}//${location.hostname}:${port}/settings`;
+  if (await waitUp(base, 12000)){
+    setRestart("已重启，正在跳转…", "ok");
+    location.href = target;
+  } else {
+    setRestart(`重启后 ${port} 端口没有响应，请查看终端日志`, "err");
+    toast("服务未响应，可能是新端口被占用或启动失败", "err");
+    btn.disabled = false;
+  }
+};
+
+function esc(s){
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/* 从首页点某个通道过来时，滚到它并短暂高亮 */
+function focusHash(){
+  const id = location.hash.slice(1);
+  if (!id) return;
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.scrollIntoView({block: "center"});
+  el.classList.add("flash");
+  setTimeout(() => el.classList.remove("flash"), 1800);
+}
+
+loadState()
+  .then(() => { pvReady = true; refreshPreview(); })
+  .then(focusHash)
+  .then(() => { refreshSchedule(); refreshAuthStatus(); })
+  .catch(e => toast("读取配置失败：" + e.message, "err"));
+</script>
+</body>
+</html>

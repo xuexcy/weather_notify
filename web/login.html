@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>登录 · 天气提醒</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='88'>🌤</text></svg>">
+<link rel="stylesheet" href="/style.css">
+<style>
+  .login-wrap { max-width: 420px; margin: 9vh auto 0; }
+  .login-card { padding: 26px 24px 22px; }
+  .login-mark { font-size: 30px; line-height: 1; margin-bottom: 12px; }
+  .login-card h1 { font-size: 18px; font-weight: 600; margin: 0 0 7px; }
+  .login-card .desc { font-size: 12.5px; color: var(--text-3);
+                      line-height: 1.65; margin: 0 0 20px; }
+  .login-card .field { margin-bottom: 13px; }
+  .login-card input[type=password] { width: 100%; }
+  .login-btn { width: 100%; margin-top: 5px; padding: 11px 14px; font-size: 14px; }
+  .login-err { min-height: 18px; font-size: 12.5px; color: var(--danger);
+               margin: 9px 0 0; line-height: 1.5; }
+  .login-foot { margin-top: 17px; padding-top: 14px;
+                border-top: 1px solid var(--line);
+                font-size: 11.5px; color: var(--text-3); line-height: 1.75; }
+  .login-foot code { font: 11px var(--mono); background: var(--surface-3);
+                     padding: 1px 5px; border-radius: 4px; }
+  .login-back { display: inline-block; margin-top: 13px;
+                font-size: 12.5px; color: var(--accent); text-decoration: none; }
+  .login-back:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="shell login-wrap">
+  <div class="card login-card">
+    <div class="login-mark">🌤</div>
+    <h1 id="title">设置页登录</h1>
+    <p class="desc" id="desc">正在检查登录状态…</p>
+
+    <form id="form" autocomplete="off">
+      <div class="field">
+        <label for="pw" id="pwLabel">访问密码</label>
+        <input id="pw" type="password" autocomplete="current-password"
+               placeholder="请输入访问密码" autofocus>
+      </div>
+      <div class="field hidden" id="pw2Field">
+        <label for="pw2">再输一次</label>
+        <input id="pw2" type="password" autocomplete="new-password"
+               placeholder="确认访问密码">
+      </div>
+      <button class="primary login-btn" id="submit" type="submit" disabled>请稍候…</button>
+      <p class="login-err" id="err"></p>
+    </form>
+
+    <div class="login-foot" id="foot">
+      登录状态在本浏览器保持 7 天；退出登录或改密码后需要重新登录。
+      <div id="recover" class="hidden" style="margin-top:8px">
+        忘记密码：编辑 <code>conf/config.json</code>，把
+        <code>auth.password_hash</code> 与 <code>auth.salt</code> 清空后重启服务，
+        即可重新设置。
+      </div>
+    </div>
+    <a class="login-back" href="/">← 返回天气首页</a>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let MODE = "login";
+
+async function api(path, body){
+  const opt = body === undefined ? {} : {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body)
+  };
+  const r = await fetch(path, opt);
+  return r.json();
+}
+
+function showError(msg){ $("err").textContent = msg || ""; }
+
+function setMode(mode){
+  MODE = mode;
+  const setup = mode === "setup";
+  $("title").textContent = setup ? "首次使用 · 设置访问密码" : "登录设置页";
+  $("desc").textContent = setup
+    ? "设置页包含和风凭据、企业微信 Webhook 等敏感配置。设一个访问密码后，只有登录才能查看和修改。"
+    : "设置页已启用访问密码，请输入后继续。首页天气无需登录。";
+  $("pwLabel").textContent = setup ? "设置访问密码" : "访问密码";
+  $("pw").placeholder = setup ? "至少 6 位" : "请输入访问密码";
+  $("pw").autocomplete = setup ? "new-password" : "current-password";
+  $("pw2Field").classList.toggle("hidden", !setup);
+  $("recover").classList.toggle("hidden", setup);
+  $("submit").textContent = setup ? "设置密码并进入" : "登录";
+  $("submit").disabled = false;
+  $("pw").value = "";
+  $("pw2").value = "";
+  $("pw").focus();
+}
+
+$("form").addEventListener("submit", async e => {
+  e.preventDefault();
+  showError("");
+  const pw = $("pw").value;
+  const btn = $("submit");
+  if (!pw){ showError("请输入密码"); return; }
+  if (MODE === "setup"){
+    if (pw.length < 6){ showError("密码至少 6 位"); return; }
+    if (pw !== $("pw2").value){ showError("两次输入的密码不一致"); return; }
+  }
+  btn.disabled = true;
+  btn.textContent = "请稍候…";
+  try{
+    const path = MODE === "setup" ? "/api/auth/setup" : "/api/auth/login";
+    const r = await api(path, {password: pw});
+    if (r.ok){ location.href = "/settings"; return; }
+    showError(r.error || "操作失败，请重试");
+  }catch(err){ showError("请求失败：" + err.message); }
+  btn.disabled = false;
+  btn.textContent = MODE === "setup" ? "设置密码并进入" : "登录";
+  $("pw").select();
+});
+
+(async () => {
+  try{
+    const s = await api("/api/auth/status");
+    if (!s.ok){ showError("登录状态读取失败，请刷新页面"); return; }
+    if (!s.enabled || s.logged_in){ location.replace("/settings"); return; }
+    setMode(s.needs_setup ? "setup" : "login");
+  }catch(e){ showError("无法连接服务：" + e.message); }
+})();
+</script>
+</body>
+</html>
