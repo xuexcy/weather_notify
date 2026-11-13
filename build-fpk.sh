@@ -124,6 +124,9 @@ build_one() {
 
     cp -R "${ROOT}/src" "${app}/src"
     cp -R "${ROOT}/web" "${app}/web"
+    # fnOS 安装后包目录里只有 app 内容（src/libs/web/ui/config），manifest 属于包元数据
+    # 不会留在应用目录，页面读版本号时需要这个文件（version_files 的第 4 条路径）
+    printf '%s\n' "${ver}" > "${app}/VERSION"
     find "${app}" -name "__pycache__" -type d -prune -exec rm -rf {} + 2>/dev/null || true
     find "${app}" -name "*.pyc" -delete 2>/dev/null || true
     find "${app}" -name "*.bak*" -delete 2>/dev/null || true

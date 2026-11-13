@@ -1,8 +1,8 @@
 appname               = weathernotify
-version               = 0.2.1
+version               = 0.2.2
 display_name          = 天气提醒
 desc                  = 定时把天气预报和气象预警推送到企业微信等 Webhook：接入和风天气官方预警（Ed25519 JWT 自动签发），没配凭据时首页直接引导去设置页；支持多通道并存、正式/测试角色分流、消息样式自定义。<br />设置页可视化管理全部选项，内置定时调度与预警轮询，不需要额外配置 cron 或其他定时器。<br /><a href="https://github.com/xuexcy/weather_notify" target="_blank">项目主页</a>
-changelog             = 0.2.1：x86 安装包文件名加 _x86 架构标识（与 _arm 对齐，版本徽标按标识显示架构）；README 补全模块清单、测试数量与产物命名说明。功能与 0.2.0 一致。
+changelog             = 0.2.2：修复装到 fnOS 后版本徽标显示「v— / 无法检测新版本」——打包时写入 app/VERSION，启动脚本据此导出 WEATHER_NOTIFY_VERSION（fnOS 不会把 manifest 留在应用目录）。功能与 0.2.1 一致。
 platform              = x86
 os_min_version        = 1.0.0
 source                = thirdparty

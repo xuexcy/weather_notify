@@ -67,6 +67,13 @@ start() {
     local launch=""
     command -v setsid >/dev/null 2>&1 && launch="setsid"
 
+    # 版本号：构建时写进 app/VERSION；manifest 不会随应用装到包目录，
+    # 这里显式传给服务，页面徽标才能显示当前版本而不是「v—」
+    if [ -r "${APPDEST}/VERSION" ]; then
+        WEATHER_NOTIFY_VERSION=$(tr -d '[:space:]' < "${APPDEST}/VERSION" 2>/dev/null)
+        export WEATHER_NOTIFY_VERSION
+    fi
+
     PYTHONPATH="${LIB_DIR}:${SRC_DIR}" \
     PYTHONUNBUFFERED=1 \
     WEATHER_NOTIFY_DATA_DIR="${DATA_DIR}" \
