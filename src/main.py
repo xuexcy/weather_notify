@@ -20,7 +20,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import config_loader
 import formatter
-import openmeteo
 import pusher
 from qweather import QWeatherClient, QWeatherError
 
@@ -356,6 +355,7 @@ def _fetch_qweather(cfg: dict, key_pem: str, hours: int) -> dict:
     """
     client = _client(cfg, key_pem)
     location = cfg["location"]
+    days = config_loader.daily_days(cfg)   # 展示天数 → 取数档位（3/7/10/15/30）
     # 空气与预警只有新版 /v1/ 接口，必须用经纬度（老 /v7/air|warning 已废弃）
     pair = coords(cfg)
     if not pair:
@@ -372,7 +372,7 @@ def _fetch_qweather(cfg: dict, key_pem: str, hours: int) -> dict:
     tasks = {
         "now": lambda: client.weather_now(location),
         "hourly": lambda: client.weather_24h(location),
-        "daily": lambda: client.weather_days(location, cfg.get("forecast_days", 7)),
+        "daily": lambda: client.weather_days(location, days),
         "indices": lambda: client.indices_1d(location, cfg["indices_types"]),
     }
     if pair:
@@ -490,7 +490,6 @@ def _fetch_qweather(cfg: dict, key_pem: str, hours: int) -> dict:
     return {
         "source": "qweather",
         "source_label": "和风天气",
-        "fallback_reason": "",
         "now": {
             "temp": _int_or_none(now.get("temp")),
             "feels": _int_or_none(now.get("feelsLike")),
@@ -509,39 +508,16 @@ def _fetch_qweather(cfg: dict, key_pem: str, hours: int) -> dict:
     }
 
 
-def fetch_weather(cfg: dict, key_pem: str | None = None, hours: int | None = None,
-                  allow_fallback: bool = True) -> dict:
-    """统一天气数据入口。
+def fetch_weather(cfg: dict, key_pem: str | None = None, hours: int | None = None) -> dict:
+    """统一天气数据入口：只走和风（含官方预警与生活指数）。
 
-    和风凭据齐全时走和风（含官方预警与生活指数）；否则、或和风请求失败时，
-    降级到 Open-Meteo（无 key、无预警），保证首页总有内容可看。
+    没有凭据时直接抛 QWeatherError，由页面引导用户去设置页配置，
+    不再回退其它数据源——回退拿不到官方预警，还可能把真正的错误盖住。
     """
     hours = int(hours if hours is not None else cfg.get("hourly_hours", 6))
-    reason = ""
-
-    if qweather_ready(cfg, key_pem):
-        try:
-            data = _fetch_qweather(cfg, key_pem, hours)
-            data["updated"] = time.strftime("%H:%M")
-            return data
-        except QWeatherError as e:
-            if not allow_fallback:
-                raise
-            log.warning("和风数据获取失败，降级 Open-Meteo: %s", e)
-            reason = str(e)
-    else:
-        reason = "未配置和风天气凭据"
-        if not allow_fallback:
-            raise QWeatherError(reason)
-
-    pair = coords(cfg)
-    if not pair:
-        raise QWeatherError(
-            f"{reason}；且没有可用坐标，无法使用备用数据源（请在设置页填写城市或重新定位）")
-
-    data = openmeteo.fetch(pair[0], pair[1], hours=hours,
-                           days=cfg.get("forecast_days", 7))
-    data["fallback_reason"] = reason
+    if not qweather_ready(cfg, key_pem):
+        raise QWeatherError("未配置和风天气凭据")
+    data = _fetch_qweather(cfg, key_pem, hours)
     data["updated"] = time.strftime("%H:%M")
     return data
 
@@ -553,7 +529,7 @@ def run_forecast(cfg: dict, key_pem: str, push: bool = True) -> dict:
     """
     name = cfg.get("location_name") or cfg["location"]
     try:
-        weather = fetch_weather(cfg, key_pem, allow_fallback=False)
+        weather = fetch_weather(cfg, key_pem)
     except QWeatherError as e:
         return {"ok": False, "error": str(e), "title": "", "body": "",
                 "channels": [], "location": name}
@@ -561,7 +537,8 @@ def run_forecast(cfg: dict, key_pem: str, push: bool = True) -> dict:
     tpl = cfg.get("message")
 
     def renderer(style: str):
-        return formatter.render(weather, name, "broadcast", style, tpl)
+        return formatter.render(weather, name, "broadcast", style, tpl,
+                                daily_days=config_loader.daily_days(cfg))
 
     if not push:
         style = preview_style(cfg)

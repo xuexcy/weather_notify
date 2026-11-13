@@ -38,6 +38,10 @@ class InlineThread:
 
 class WeatherCacheTest(unittest.TestCase):
     def setUp(self):
+        # 这些用例只关心缓存策略，把「和风凭据是否齐全」当成已配置
+        p = mock.patch.object(server.core, "qweather_ready", return_value=True)
+        p.start()
+        self.addCleanup(p.stop)
         self._old_cache = dict(server._WEATHER_CACHE)
         self._old_state = dict(server._REFRESH_STATE)
         server._WEATHER_CACHE.update({"key": None, "ts": 0.0, "data": None})
@@ -57,6 +61,15 @@ class WeatherCacheTest(unittest.TestCase):
         self.assertFalse(cached)
         self.assertEqual(data["now"]["temp"], temp)
         return data
+
+    def test_missing_credentials_returns_need_setup(self):
+        with mock.patch.object(server.core, "qweather_ready", return_value=False), \
+                mock.patch.object(server.core, "fetch_weather") as f:
+            data, cached, error, info = server.Handler._cached_weather(CFG, None)
+        self.assertIsNone(data)
+        self.assertFalse(f.called, "没配和风不该去打任何上游")
+        self.assertTrue(info["need_setup"])
+        self.assertIn("还没配置和风天气", error)
 
     def test_no_cache_fetches_synchronously(self):
         self._warm(18)

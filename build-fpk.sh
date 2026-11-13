@@ -53,23 +53,38 @@ if [ ! -x "$(command -v fnpack || true)" ] && [ -z "${SKIP_PACK:-}" ]; then
 fi
 
 # ---------- 依赖安装 ----------
-# x86：本机 pip 安装（wheel 与构建机环境天然匹配）
-# arm：交叉下载 aarch64 wheel；--only-binary 保证不会尝试编译
+# 两个架构都用 pip 交叉下载对应平台的 manylinux wheel（--only-binary 保证不编译），
+# 所以在 x86_64 和 arm64 机器上都能出双架构包，不受构建机自身架构影响
 install_deps() {
-    local libs="$1" arch="$2"
+    local libs="$1" arch="$2" platforms=() args=() p
     if [ "${arch}" = "x86" ]; then
-        python3 -m pip install --target "${libs}" --no-compile --quiet \
-            -r "${ROOT}/requirements.txt"
+        platforms=(manylinux2014_x86_64 manylinux_2_28_x86_64)
     else
-        python3 -m pip install --target "${libs}" --no-compile --quiet \
-            --only-binary :all: \
-            --platform manylinux2014_aarch64 \
-            --platform manylinux_2_28_aarch64 \
-            --platform any \
-            --python-version "${PY_TAG}" --implementation cp --abi "cp${PY_TAG}" \
-            -r "${ROOT}/requirements.txt"
+        platforms=(manylinux2014_aarch64 manylinux_2_28_aarch64)
     fi
+    for p in "${platforms[@]}"; do args+=(--platform "${p}"); done
+    args+=(--platform any)
+    python3 -m pip install --target "${libs}" --no-compile --quiet \
+        --only-binary :all: "${args[@]}" \
+        --python-version "${PY_TAG}" --implementation cp --abi "cp${PY_TAG}" \
+        -r "${ROOT}/requirements.txt"
     find "${libs}" -name "__pycache__" -type d -prune -exec rm -rf {} + 2>/dev/null || true
+}
+
+# 改 manifest 的某个字段：用 python 重写，macOS 的 BSD sed 没有 GNU 的 -i 语义
+set_manifest_field() {
+    python3 - "$1" "$2" "$3" <<'PY'
+import re, sys
+path, key, value = sys.argv[1:4]
+with open(path, encoding="utf-8") as f:
+    lines = f.read().splitlines(True)
+out = []
+for line in lines:
+    m = re.match(r"^(\s*%s\s*=).*$" % re.escape(key), line)
+    out.append("%s %s\n" % (m.group(1), value) if m else line)
+with open(path, "w", encoding="utf-8") as f:
+    f.writelines(out)
+PY
 }
 
 check_deps_arch() {
@@ -117,8 +132,8 @@ build_one() {
     check_deps_arch "${app}/libs" "${arch}"
 
     # manifest：版本号与架构
-    sed -i "s/^version[[:space:]]*=.*/version               = ${ver}/" "${pkg}/manifest"
-    sed -i "s/^platform[[:space:]]*=.*/platform              = ${platform}/" "${pkg}/manifest"
+    set_manifest_field "${pkg}/manifest" version "${ver}"
+    set_manifest_field "${pkg}/manifest" platform "${platform}"
 
     echo "== 语法自检 =="
     find "${app}/src" -name "*.py" -print0 | xargs -0 -n 20 python3 -m py_compile -q

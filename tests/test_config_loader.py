@@ -692,6 +692,52 @@ class KeyPairTest(TempConfCase):
         self.assertRegex(info["created_at"], r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}")
 
 
+class DailyDaysTest(TempConfCase):
+    """逐日预报天数：设置页选项直通，余下的数字向上归到最近的取数档位。"""
+
+    def test_options_pass_through(self):
+        f = config_loader.daily_days
+        for n in (1, 2, 3, 4, 5, 6, 7, 10, 15, 30):
+            self.assertEqual(f({"forecast_days": n}), n)
+
+    def test_rounds_up_between_tiers(self):
+        f = config_loader.daily_days
+        self.assertEqual(f({"forecast_days": 8}), 10)
+        self.assertEqual(f({"forecast_days": 12}), 15)
+        self.assertEqual(f({"forecast_days": 20}), 30)
+        self.assertEqual(f({"forecast_days": 99}), 30)
+        self.assertEqual(f({"forecast_days": 0}), 1)
+
+    def test_dirty_values_fall_back_to_default(self):
+        f = config_loader.daily_days
+        for bad in ("abc", None, [], {}):
+            self.assertEqual(f({"forecast_days": bad}), 5)
+        self.assertEqual(f({}), 5)
+        self.assertEqual(f(None), 5)
+        self.assertEqual(f({"forecast_days": "6"}), 6)
+
+
+class UpdateCheckModeTest(TempConfCase):
+    """检查更新三档：只认 auto / manual / off，脏值一律当 auto。"""
+
+    def test_options_pass_through(self):
+        f = config_loader.update_check_mode
+        for mode in ("auto", "manual", "off"):
+            self.assertEqual(f({"update_check": mode}), mode)
+
+    def test_case_and_space_tolerated(self):
+        f = config_loader.update_check_mode
+        self.assertEqual(f({"update_check": " MANUAL "}), "manual")
+        self.assertEqual(f({"update_check": "Off"}), "off")
+
+    def test_dirty_values_fall_back_to_auto(self):
+        f = config_loader.update_check_mode
+        for bad in ("yes", "", None, 0, [], {}):
+            self.assertEqual(f({"update_check": bad}), "auto")
+        self.assertEqual(f({}), "auto")
+        self.assertEqual(f(None), "auto")
+
+
 if __name__ == "__main__":
     import unittest
     unittest.main()

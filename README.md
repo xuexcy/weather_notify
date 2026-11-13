@@ -12,8 +12,9 @@
 - **和风天气新版认证**：JWT（Ed25519），密钥在设置页一键生成 / 替换，不用 devapi + key 老方式
 - **官方灾害预警**（暴雨 / 台风 / 大风 / 寒潮等），有预警时预警置顶推送
 - **日常播报**：实况 + 空气质量 + 逐日 + 逐小时 + 生活指数
-- **无和风凭据也能用**：自动降级 Open-Meteo（无需注册），首页照样有天气，只是没有官方预警
+- **只接和风天气**：官方预警、生活指数、国标 AQI 都来自和风；没配凭据时首页直接引导去设置页，不做降级
 - **网页界面**：首页看天气 / 设置页填凭据，提醒通道可添加多个实例（含同类多个）
+- **版本徽标**：首页与设置页顶部显示当前版本并比对 GitHub release；有新版本时黄胶囊提示，点开直接下载对应架构的 fpk。检查可在设置页关掉（内网设备选 `off` 就不联网）
 - **通道用途可选**：每个通道能勾「正式」「测试」（可同时勾），调格式不打扰正式群
 - **设置页访问密码**：PBKDF2 密码哈希 + HMAC 签名 cookie，首页天气仍可公开查看
 - **消息模板可改**：日常播报与天气预警各有标题 / 正文模板，用 `{变量}` 拼装
@@ -33,7 +34,7 @@ python3 -m venv .venv
 打开 `http://127.0.0.1:18770` 就是天气首页；点右上角「设置」会先跳到 `/login`
 **让你设一个访问密码**，设完自动进入设置页。
 
-> 想先看效果不配凭据也行：没有和风凭据时自动走 Open-Meteo，首页照样有天气（没有官方预警）。
+> 没有和风凭据时，首页会显示「还没配置和风天气」，点一下就到设置页。
 
 ### 飞牛 fnOS 用户
 
@@ -101,11 +102,10 @@ logs/         运行日志（gitignore）
 
 | 文件 | 职责 |
 |---|---|
-| `src/main.py` | 数据入口 `fetch_weather()`（双源切换）、播报流程、预警去重、运行记录 |
+| `src/main.py` | 数据入口 `fetch_weather()`（只走和风）、播报流程、预警去重、运行记录 |
 | `src/server.py` | Web 服务（首页 / 登录 / 设置 / API / 静态资源）、鉴权路由、内置定时调度 |
 | `src/auth.py` | 设置页鉴权：PBKDF2 密码哈希、HMAC 签名 cookie、登录失败限流 |
 | `src/qweather.py` | 和风客户端（JWT 签发 + weather/indices 走 v7，airquality/weatheralert 走 v1） |
-| `src/openmeteo.py` | Open-Meteo 兜底源（WMO 代码 → 中文 / 图标、蒲福风级） |
 | `src/geoip.py` | 公网 IP 定位（多源并发 + 中文名优先 + 出口 IP 警示） |
 | `src/formatter.py` | 消息组装：模板占位符 + md / 纯文本两种风格，预警置顶 |
 | `src/pusher.py` | 企业微信 webhook + MagicPush |
@@ -120,7 +120,7 @@ logs/         运行日志（gitignore）
 |---|---|
 | [docs/ui.md](docs/ui.md) | 网页界面：首页、设置页、城市位置与经纬度、测试推送 |
 | [docs/configuration.md](docs/configuration.md) | 配置字段全表、通道结构、和风密钥生成 |
-| [docs/data-sources.md](docs/data-sources.md) | 和风 vs Open-Meteo 降级、废弃接口、IP 定位 |
+| [docs/data-sources.md](docs/data-sources.md) | 和风接口与缓存策略、未配置时的行为、IP 定位 |
 | [docs/air-quality.md](docs/air-quality.md) | AQI 标准 HJ 633—2026 与六档分级、逐小时降水概率 |
 | [docs/message-template.md](docs/message-template.md) | 模板占位符、默认模板、标题在各通道的去向 |
 | [docs/scheduling.md](docs/scheduling.md) | 定时播报 / 预警轮询的触发、去重、状态文件 |

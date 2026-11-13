@@ -102,5 +102,39 @@ class RenderTest(unittest.TestCase):
         self.assertNotIn("> ", body)
 
 
+def _days(n: int) -> dict:
+    return {"daily": [{"date": f"2026-11-{i + 1:02d}", "label": f"D{i + 1}",
+                       "text": "晴", "high": "20", "low": "10"}
+                      for i in range(n)]}
+
+
+class DailyDaysTest(unittest.TestCase):
+    """逐日区块的天数跟着设置走：不传 limit 就全列，传了就截。"""
+
+    def test_default_lists_every_day(self):
+        out = formatter.format_daily(_days(10))
+        self.assertIn("未来十天", out)
+        self.assertEqual(len([l for l in out.splitlines() if l.startswith("> ")]), 10)
+
+    def test_limit_truncates(self):
+        out = formatter.format_daily(_days(7), "md", 3)
+        self.assertIn("未来三天", out)
+        self.assertEqual(len([l for l in out.splitlines() if l.startswith("> ")]), 3)
+
+    def test_render_uses_daily_days(self):
+        tpl = {"broadcast_body": "{daily}"}
+        _, body = formatter.render(_days(7), "公安", "broadcast", "md", tpl,
+                                   daily_days=2)
+        self.assertIn("未来两天", body)
+        self.assertIn("D2", body)
+        self.assertNotIn("D3", body)
+
+    def test_render_without_daily_days_lists_every_day(self):
+        tpl = {"broadcast_body": "{daily}"}
+        _, body = formatter.render(_days(30), "公安", "broadcast", "md", tpl)
+        self.assertIn("未来30天", body)
+        self.assertEqual(len([l for l in body.splitlines() if l.startswith("> ")]), 30)
+
+
 if __name__ == "__main__":
     unittest.main()

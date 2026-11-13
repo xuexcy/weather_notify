@@ -77,6 +77,21 @@ cd /vol2/1000/agent沙箱/weather-notify
 
 两个包各自约 5.7–5.8 MB，`stage-x86/`、`stage-arm/` 是中间目录，可随时删。
 
+## 版本号与更新提示
+
+版本号的唯一来源是 manifest 的 `version`：页面顶部的版本徽标在运行时按下面的顺序找它
+（见 `src/update_check.py`），找不到就显示 `v—`：
+
+1. 环境变量 `WEATHER_NOTIFY_VERSION`（临时验证 / 容器里覆盖用）
+2. `<src>/../fpk/manifest` —— 仓库里直接跑时的 manifest
+3. `<src>/../../manifest` —— 打包后的布局：`pkg/manifest` 与 `pkg/app` 同级，
+   代码在 `pkg/app/src`，所以往上两级才是 manifest
+4. `<src>/../manifest` —— 代码与 manifest 同级的简单布局
+5. `<src>/../VERSION` —— 纯文本版本号文件（可选）
+
+所以发版时只要 `./build-fpk.sh 0.1.3`（或改 manifest 再打包），页面显示的版本就跟着变；
+「是否有新版本」是拿它和 GitHub 上最新 release 比对，不需要额外维护。
+
 为什么不能出一个包通吃两个架构：fnOS 的 `platform` 字段不接受多值（写多个会装不上），
 而包里又带着架构相关的二进制（`cryptography` 的 `_rust.abi3.so`、`cffi`、
 `charset_normalizer` 的 cp311 扩展），所以必须按架构分开出包。

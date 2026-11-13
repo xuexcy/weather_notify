@@ -5,6 +5,7 @@
 | GET | `/`、`/login` | — | 首页天气面板 / 登录页 |
 | GET | `/api/weather` | — | 结构化天气 JSON（10 分钟新鲜期；过期先返回旧数据 `stale=true` 并后台刷新；`?fresh=1` 强制刷新有 15 秒全局限流） |
 | GET | `/api/status` | — | 配置状态：缺项、通道、位置、最近一次推送 |
+| GET | `/api/version` | — | 版本徽标：当前版本（读打包 manifest 的 `version`）+ GitHub 最新 release + fpk 附件。成功结果缓存 24 小时、失败 15 分钟，页面不会因 GitHub 卡住；`?refresh=1` 强制重新检查；受设置里 `update_check`（auto/manual/off）控制，off 时不联网 |
 | GET | `/api/auth/status` | — | 鉴权状态：开关、是否已设密码、是否已登录、会话时长 |
 | GET | `/api/state` | ✅ | 原始配置（`auth` 段脱敏）+ 状态（设置页用） |
 | GET | `/api/schedule` | ✅ | 调度状态：播报时间点、下次/上次触发、预警轮询间隔与下次检查 |
@@ -18,7 +19,7 @@
 | POST | `/api/city` | — | 按名称搜城市（body `{keyword}`，可带 `config`），返回省 / 市 / 区县候选 |
 | POST | `/api/location` | — | 直接用候选城市替换位置（body 为 `/api/city` 返回的一项），立即生效 |
 | POST | `/api/message` | ✅ | 生成推送消息预览（不推送）。`mode=broadcast`（默认）用真实天气；`mode=alert` 用示例预警 |
-| POST | `/api/test` | ✅ | 测试推送：**连发两条** —— 日常播报（真实天气）+ 天气预警（示例预警），都带「🧪 测试」前缀；**只发勾了「测试」用途的通道**（`roles` 含 `test`），只勾正式的通道一条都不碰；不要求和风凭据（无 key 时走 Open-Meteo） |
+| POST | `/api/test` | ✅ | 测试推送：**连发两条** —— 日常播报（真实天气）+ 天气预警（示例预警），都带「🧪 测试」前缀；**只发勾了「测试」用途的通道**（`roles` 含 `test`），只勾正式的通道一条都不碰；需要和风凭据（没配时直接返回错误） |
 | POST | `/api/test-channel` | ✅ | 单通道连通性测试：只发一条极简「🧪 连通性测试」消息（不取天气、不渲染模板），走该通道自己的地址。body `{id, config}`，按通道 id 匹配（优先用页面提交的凭据，未保存也能测） |
 | POST | `/api/test-qweather` | ✅ | 和风 API 连通性测试：真实调用一次 GeoAPI，同时验证 API Host、项目 ID、凭据 ID 与 Ed25519 私钥。body `{config}` 优先用页面提交的未保存凭据 |
 | POST | `/api/qweather/key` | ✅ | 生成 / 替换和风 Ed25519 密钥对（写 `conf/` 下两个 pem）。body `{action}`：`generate` 现场生成一对；`replace` 用 `{private_key}` 粘贴的私钥（PEM 或 ssh-keygen 格式），公钥由私钥推导。旧私钥自动备份，响应只含公钥不含私钥 |
@@ -30,6 +31,31 @@
 
 > 标 ✅ 的接口和 `/settings` 需要登录，未登录返回 401（页面跳 `/login`）；
 > 敏感 POST 还会校验 `Origin` 与 `Host` 一致，跨站调用返回 403。
+
+### `/api/version` 的返回
+
+```json
+{
+  "current": "0.1.2",
+  "latest": "0.2.0",
+  "state": "outdated",
+  "stale": false,
+  "checked_text": "2026-11-13 19:30",
+  "mode": "auto",
+  "error": null,
+  "release_url": "https://github.com/xuexcy/weather_notify/releases/tag/v0.2.0",
+  "assets": [
+    {"name": "weathernotify_0.2.0.fpk", "url": "https://…/weathernotify_0.2.0.fpk",
+     "size": 6100000, "arch": "x86"},
+    {"name": "weathernotify_0.2.0_arm.fpk", "url": "https://…/weathernotify_0.2.0_arm.fpk",
+     "size": 6000000, "arch": "arm"}
+  ]
+}
+```
+
+`state` 取值：`latest`（已最新）、`outdated`（有新版本）、`unknown`（查不了，看 `error`）、
+`off`（设置里关了检查）、`unchecked`（手动模式且还没查过）。`assets` 只收 release 里
+`.fpk` 结尾、下载地址为 https 的附件（最多 6 个）；`latest` 为空时 `assets` 与 `release_url` 都为空。
 
 ## 命令行手动触发
 

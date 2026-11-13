@@ -341,5 +341,38 @@ class TestQweatherTest(unittest.TestCase):
         self.assertIn("测试失败", str(cm.exception))
 
 
+class FetchWeatherTest(unittest.TestCase):
+    """只走和风：没配凭据直接报错让用户去设置，和风的错误原样抛出，不做回退。"""
+
+    def setUp(self):
+        self.cfg = {"location": "112.23,30.06", "hourly_hours": 6,
+                    "forecast_days": 5, "qweather": {}}
+
+    def test_missing_credentials_raises(self):
+        with mock.patch.object(main, "qweather_ready", return_value=False), \
+                mock.patch.object(main, "_fetch_qweather") as f:
+            with self.assertRaises(main.QWeatherError) as cm:
+                main.fetch_weather(self.cfg, None)
+        self.assertIn("未配置和风天气凭据", str(cm.exception))
+        self.assertFalse(f.called, "没配凭据不该再请求和风")
+
+    def test_qweather_error_propagates(self):
+        with mock.patch.object(main, "qweather_ready", return_value=True), \
+                mock.patch.object(main, "_fetch_qweather",
+                                  side_effect=main.QWeatherError("和风返回 401")):
+            with self.assertRaises(main.QWeatherError) as cm:
+                main.fetch_weather(self.cfg, "PEM")
+        self.assertIn("和风返回 401", str(cm.exception))
+
+    def test_success_has_no_fallback_fields(self):
+        with mock.patch.object(main, "qweather_ready", return_value=True), \
+                mock.patch.object(main, "_fetch_qweather",
+                                  return_value={"source": "qweather", "now": {}}):
+            data = main.fetch_weather(self.cfg, "PEM")
+        self.assertEqual(data["source"], "qweather")
+        self.assertNotIn("fallback_reason", data)
+        self.assertIn("updated", data)
+
+
 if __name__ == "__main__":
     unittest.main()

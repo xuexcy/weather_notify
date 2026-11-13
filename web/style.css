@@ -2,6 +2,9 @@
    设计取向：本机小工具，安静、清爽、以天气本身为主角。
    层次靠留白与阴影，不靠边框堆叠。 */
 
+/* button 等元素写了 display，会盖掉 UA 的 [hidden]{display:none}，统一兜底 */
+[hidden] { display: none !important; }
+
 :root {
   --bg: #f3f4f7;
   --surface: #ffffff;
@@ -99,10 +102,12 @@ body {
 
 /* ---------- 顶栏 ---------- */
 .topbar {
-  display: flex; align-items: flex-start; justify-content: space-between;
-  gap: 14px; margin-bottom: 18px;
+  display: flex; align-items: flex-start; gap: 14px;
+  margin-bottom: 18px;
 }
 .topbar > div { min-width: 0; }
+/* 徽标靠右：左边留白把地址块和「徽标 + 重新检查 + 设置」分开 */
+.topbar .verbar { margin-left: auto; flex: none; }
 .topbar h1 { font-size: 19px; font-weight: 600; margin: 0; letter-spacing: .2px; }
 .topbar .sub { font-size: 12.5px; color: var(--text-3); margin: 3px 0 0; }
 .nav { display: flex; gap: 8px; flex: none; }
@@ -695,9 +700,82 @@ pre.markdown {
 .hidden { display: none !important; }
 .empty { color: var(--text-3); font-size: 12.5px; padding: 6px 0; }
 
+
+/* ---------- 版本徽标（主页 / 设置页顶部） ---------- */
+/* 主次分明：最新态几乎退成一行小字，有新版本才膨胀成醒目的胶囊，
+   失败态用暗红细边而不是整条红底——内网常年连不上 GitHub，太重会变噪音 */
+.verbar {
+  /* 徽标不单独占一行：靠右和「设置」同排 */
+  position: relative;
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 8px; flex-wrap: wrap; margin: 0; padding-top: 3px;
+}
+.ver-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 3px 10px 3px 9px; border-radius: 999px;
+  border: 1px solid transparent; background: transparent;
+  color: var(--text-3); font-size: 11.5px; line-height: 1.6;
+  text-decoration: none;
+}
+/* 状态色不参与过渡：徽标一渲染就该是最终颜色，别让过渡停在半路 */
+.ver-chip:hover {
+  border-color: var(--accent-line); color: var(--text-2);
+  transition: border-color .15s, color .15s;
+}
+.ver-dot {
+  width: 6px; height: 6px; border-radius: 50%; flex: none;
+  background: var(--text-3);
+}
+.ver-name { color: inherit; }
+.ver-num { font-family: var(--mono); }
+.ver-state { color: inherit; }
+/* 已是最新 / 关闭 / 未检查：只留一个小圆点，不占注意力 */
+.ver-chip.is-latest .ver-dot { background: var(--ok); }
+.ver-chip.is-off .ver-dot,
+.ver-chip.is-unchecked .ver-dot { background: var(--line-2); }
+/* 有新版本：这里才值得显眼——底色 + 加粗 + 下载按钮 */
+.ver-chip.is-outdated {
+  background: var(--warn-soft); border-color: var(--warn-line);
+  color: var(--warn); font-weight: 600;
+}
+.ver-chip.is-outdated .ver-dot { background: var(--warn); }
+.ver-chip.is-unknown {
+  border-color: var(--danger-line); color: var(--danger);
+}
+.ver-chip.is-unknown .ver-dot { background: var(--danger); }
+.ver-chip.is-checking .ver-dot { animation: verPulse 1.2s ease-in-out infinite; }
+@keyframes verPulse { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
+.verbar .link-btn { font-size: 11.5px; white-space: nowrap; }
+.ver-dl { color: var(--warn); }
+
+/* 下载面板：挂在徽标条下方，点「下载」展开 */
+.ver-panel {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 30;
+  width: min(340px, 86vw); padding: 12px 14px;
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface); box-shadow: 0 12px 32px rgba(0, 0, 0, .18);
+  font-size: 12.5px; line-height: 1.7; text-align: left;
+}
+.ver-panel-head { font-weight: 600; color: var(--text); margin-bottom: 2px; }
+.ver-panel-tip { margin: 6px 0 8px; color: var(--text-3); font-size: 11.5px; }
+.ver-notes { color: var(--accent); text-decoration: none; }
+.ver-notes:hover { text-decoration: underline; }
+.ver-assets { list-style: none; margin: 6px 0 0; padding: 0; }
+.ver-assets li {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  padding: 6px 0; border-top: 1px solid var(--line);
+}
+.ver-assets a { color: var(--accent); text-decoration: none; word-break: break-all; }
+.ver-assets a:hover { text-decoration: underline; }
+.ver-assets span { color: var(--text-3); font-size: 11px; white-space: nowrap; }
+.ver-panel-empty { margin: 6px 0 0; color: var(--text-3); }
+
 /* ---------- 窄屏 ---------- */
 @media (max-width: 640px) {
   body { padding: 18px 12px 44px; }
+  /* 顶栏一行放不下项目名：只留圆点 + 版本 + 状态 */
+  .ver-name { display: none; }
+  .verbar { row-gap: 2px; }
   .hero { padding: 20px 18px 16px; border-radius: 16px; }
   .hero-temp { font-size: 52px; letter-spacing: -2px; }
   .hero-icon { font-size: 34px; }

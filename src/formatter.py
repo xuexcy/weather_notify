@@ -24,7 +24,7 @@ LEVEL_EMOJI = {
 
 WEEKDAYS = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
-# 日期 / 时刻统一按北京时间算，与天气数据（和风、Open-Meteo 都按 Asia/Shanghai）一致，
+# 日期 / 时刻统一按北京时间算，与天气数据（和风按 Asia/Shanghai 返回）一致，
 # 这样即使跑在 UTC 时区的机器上，标题里的日期也不会差一天。
 try:
     from zoneinfo import ZoneInfo
@@ -59,7 +59,7 @@ PLACEHOLDER_DOC = (
     ("{current}", "实况（区块）"),
     ("{air}", "空气质量（区块）"),
     ("{hourly}", "逐小时（区块）"),
-    ("{daily}", "未来三天（区块）"),
+    ("{daily}", "逐日预报（区块，天数看「逐日预报天数」设置）"),
     ("{indices}", "生活指数（区块）"),
 )
 
@@ -212,9 +212,15 @@ def format_hourly(weather: dict, style: str = "md") -> str:
     return "\n".join(lines)
 
 
-def format_daily(weather: dict, style: str = "md", limit: int = 5) -> str:
-    """逐日预报段落。数据源可能给到 7~30 天，消息里最多列 limit 天，避免刷屏。"""
-    daily = ((weather or {}).get("daily") or [])[:max(int(limit), 1)]
+def format_daily(weather: dict, style: str = "md", limit: int | None = None) -> str:
+    """逐日预报段落。
+
+    天数由设置页「逐日预报天数」决定（render 的 daily_days）；limit=None 时
+    用数据源给的全部，保证「设置里选几天就显示几天」。
+    """
+    daily = list((weather or {}).get("daily") or [])
+    if limit is not None:
+        daily = daily[:max(int(limit), 1)]
     if not daily:
         return ""
     lines = [_h(f"📅 未来{_cn_num(len(daily))}天", style)]
@@ -303,7 +309,8 @@ def _scalars(weather: dict, city: str, warnings: list) -> dict:
 
 
 def render(weather: dict, city: str, mode: str = "broadcast", style: str = "md",
-           tpl: dict | None = None, warnings: list | None = None) -> tuple[str, str]:
+           tpl: dict | None = None, warnings: list | None = None,
+           daily_days: int | None = None) -> tuple[str, str]:
     """按模板渲染出 (标题, 正文)。
 
     weather 可为 None（alert 模式只关心 warnings）。
@@ -325,7 +332,7 @@ def render(weather: dict, city: str, mode: str = "broadcast", style: str = "md",
             "current": format_current(weather, style),
             "air": format_air(weather, style),
             "hourly": format_hourly(weather, style),
-            "daily": format_daily(weather, style),
+            "daily": format_daily(weather, style, daily_days),
             "indices": format_indices(weather, style),
         }
 

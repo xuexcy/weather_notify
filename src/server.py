@@ -7,7 +7,9 @@
     /            首页：当前天气、预警、未来趋势、推送状态
     /settings    设置页：和风凭据、推送通道（勾选展开）、播报选项
     /style.css   共享样式
-    /api/weather 结构化天气 JSON（和风优先，无凭据时降级 Open-Meteo）
+    /version.js  版本徽标（读 /api/version）
+    /api/version 当前版本 + GitHub 最新 release（成功缓存 24 小时）
+    /api/weather 结构化天气 JSON（只走和风；没配凭据时返回 need_setup）
     /api/state   读取配置 + 私钥/公钥状态
     /api/status  首页所需的配置状态汇总
     /api/geoip   按公网 IP 重新定位城市（写入配置）
@@ -55,6 +57,7 @@ import formatter
 import geoip
 import main as core
 import pusher
+import update_check
 from qweather import QWeatherError
 
 # 静态页面在项目根目录的 web/（代码在 src/，所以用 config_loader 算好的根目录）
@@ -95,6 +98,7 @@ PROTECTED_POST = frozenset({
 
 STATIC = {
     "/style.css": ("style.css", "text/css; charset=utf-8"),
+    "/version.js": ("version.js", "text/javascript; charset=utf-8"),
 }
 
 TEST_TAG = "🧪 测试"
@@ -561,8 +565,8 @@ def build_status() -> dict:
         "key": config_loader.key_info(),
         "location": loc,
         "channels": channels,
-        # 能否拿到天气：和风齐全，或有坐标可走 Open-Meteo 兜底
-        "can_fetch": bool((not missing_qw and key_exists) or core.coords(cfg)),
+        # 能否拿到天气：必须和风凭据齐全 + 私钥在位（没有兜底源）
+        "can_fetch": bool(not missing_qw and key_exists),
         "last_run": core.load_last_run(),
         # 机器可能是 UTC（NAS 常见），统一按北京时间展示，别和标题里的日期差一天
         "server_time": formatter._now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -726,6 +730,9 @@ class Handler(BaseHTTPRequestHandler):
                         "status": build_status()})
         elif path == "/api/status":
             self._json(build_status())
+        elif path == "/api/version":
+            # 首页与设置页顶部的版本徽标；公开接口，不含凭据
+            self._json(update_check.get_state(force="refresh=1" in self.path))
         elif path == "/favicon.ico":
             self.send_response(204)
             self.end_headers()
@@ -822,9 +829,14 @@ class Handler(BaseHTTPRequestHandler):
         缓存键带上会影响返回内容的配置：地点、逐小时条数、逐日天数、生活指数，
         否则改了这些设置会拿回旧的缓存数据。
         """
+        if not core.qweather_ready(cfg, key_pem):
+            # 没有和风凭据：不去打任何外部接口，直接告诉页面去设置
+            return None, False, "还没配置和风天气：去设置页填上 API Host、项目 ID、凭据 ID 和私钥", {
+                "stale": False, "age": 0, "need_setup": True}
+
         cache_key = (cfg.get("location"), cfg.get("location_name"),
                      int(cfg.get("hourly_hours", 6)),
-                     int(cfg.get("forecast_days", 7)),
+                     config_loader.daily_days(cfg),
                      str(cfg.get("indices_types", "")),
                      core.qweather_ready(cfg, key_pem))
         with _CACHE_LOCK:
@@ -863,7 +875,8 @@ class Handler(BaseHTTPRequestHandler):
         data, cached, error, info = self._cached_weather(cfg, key_pem, force)
         if error:
             self._json({"ok": False, "weather": None, "cached": False,
-                        "error": error, "stale": False, "age": 0})
+                        "error": error, "stale": False, "age": 0,
+                        "need_setup": bool(info.get("need_setup"))})
             return
         self._json({"ok": True, "weather": data, "cached": cached, "error": "",
                     "stale": info["stale"], "age": info["age"]})
@@ -904,7 +917,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         previews = []
         for key, label, style in core.preview_styles(cfg):
-            t, b = formatter.render(weather, name, "broadcast", style, tpl)
+            t, b = formatter.render(weather, name, "broadcast", style, tpl,
+                                    daily_days=config_loader.daily_days(cfg))
             inline = key.startswith("wecom")
             previews.append({"key": key, "label": label, "style": style,
                              "title": t, "inline": inline,
@@ -915,8 +929,7 @@ class Handler(BaseHTTPRequestHandler):
                     "previews": previews, "cached": cached,
                     "title": first["title"], "body": first["body"],
                     "style": first["style"],
-                    "source": weather.get("source_label", ""),
-                    "fallback_reason": weather.get("fallback_reason", "")})
+                    "source": weather.get("source_label", "")})
 
     def _test(self, body: dict) -> None:
         """测试推送：发两条 —— 日常播报（真实天气）+ 天气预警（示例预警）。
@@ -926,7 +939,7 @@ class Handler(BaseHTTPRequestHandler):
         收到的样子就是将来真推送的样子，都带「🧪 测试」标记。
         """
         cfg = self._config_from_body(body)
-        # 测试推送只验证通道，不要求和风凭据（没 key 时自动降级 Open-Meteo）
+        # 测试推送只验证通道；但日常播报那条仍要真实天气，所以需要和风凭据
         errors = self._channel_errors(cfg, config_loader.ROLE_TEST)
         if errors:
             self._json({"ok": False, "channels": [], "errors": errors, "messages": []})
@@ -957,7 +970,8 @@ class Handler(BaseHTTPRequestHandler):
                     t, b = formatter.render(None, name, "alert", style, tpl,
                                             warnings=[SAMPLE_WARNING])
                 else:
-                    t, b = formatter.render(weather, name, "broadcast", style, tpl)
+                    t, b = formatter.render(weather, name, "broadcast", style, tpl,
+                                            daily_days=config_loader.daily_days(cfg))
                 return tag_test(t, b, style, note)
 
             channels, _ = core.push_all(cfg, renderer, config_loader.ROLE_TEST)
@@ -971,8 +985,7 @@ class Handler(BaseHTTPRequestHandler):
         flat = [{"message": m["label"], **c} for m in messages for c in m["channels"]]
         self._json({"ok": all(c["ok"] for c in flat) if flat else False,
                     "errors": [], "channels": flat, "messages": messages,
-                    "source": weather.get("source_label", ""),
-                    "fallback_reason": weather.get("fallback_reason", "")})
+                    "source": weather.get("source_label", "")})
 
     def _test_channel(self, body: dict) -> None:
         """单通道连通性测试：只发一条极简消息，不取天气、不渲染模板。

@@ -6,6 +6,7 @@
 <title>设置 · 天气提醒</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='88'>🌤</text></svg>">
 <link rel="stylesheet" href="/style.css">
+<script src="/version.js" defer></script>
 <style>
   /* 多选场景专用（仅本页使用） */
   .checks { display: flex; flex-wrap: wrap; gap: 7px; }
@@ -202,6 +203,16 @@
       <h1>设置</h1>
       <p class="sub">改动失去焦点自动保存 · 凭据只写入本机 conf/</p>
     </div>
+    <div class="verbar">
+      <a class="ver-chip is-checking" id="verChip"
+         href="https://github.com/xuexcy/weather_notify/releases" target="_blank" rel="noopener">
+        <span class="ver-dot" aria-hidden="true"></span>
+        <span class="ver-name">weather_notify</span>
+        <span class="ver-num" id="verNum">v—</span>
+        <span class="ver-state" id="verState" role="status">检查中…</span>
+      </a>
+      <button class="link-btn" id="verRefresh" type="button">重新检查</button>
+    </div>
     <nav class="nav">
       <a class="btn btn-ghost" href="/">← 返回</a>
       <button class="btn btn-ghost hidden login-link" id="logoutBtn" type="button">退出登录</button>
@@ -216,8 +227,8 @@
               title="真实调用一次和风 GeoAPI，验证 Host、项目 ID、凭据 ID 与私钥是否有效">测试 API</button>
     </h2>
     <p class="card-desc">
-      和风提供实况、预报与<b>中国官方灾害预警</b>。留空时首页会用 Open-Meteo
-      兜底显示天气，但拿不到预警。
+      和风提供实况、预报与<b>中国官方灾害预警</b>，是本服务唯一的数据源。
+      留空时首页会提示你先来配置。
     </p>
     <div class="form-grid">
       <div class="field">
@@ -338,13 +349,18 @@
       <div class="field">
         <label for="forecast_days">逐日预报天数</label>
         <select id="forecast_days">
+          <option value="1">1 天</option>
+          <option value="2">2 天</option>
           <option value="3">3 天</option>
+          <option value="4">4 天</option>
+          <option value="5">5 天</option>
+          <option value="6">6 天</option>
           <option value="7">7 天</option>
           <option value="10">10 天</option>
           <option value="15">15 天</option>
           <option value="30">30 天</option>
         </select>
-        <div class="hint">超过 7 天需和风相应订阅</div>
+        <div class="hint">消息里列几天。和风只按 3/7/10/15/30 档位取数——选 1~2 天按 3 天取、选 4~6 天按 7 天取；超过 7 天需和风相应订阅</div>
       </div>
       <div class="field">
         <label for="alert_min_level">预警最低等级</label>
@@ -577,6 +593,16 @@
         <label>当前地址</label>
         <div class="port-now"><a id="portLink" href="/">—</a></div>
         <div class="hint" id="portState">—</div>
+      </div>
+      <div class="field">
+        <label for="update_check">检查更新</label>
+        <select id="update_check">
+          <option value="auto">自动（每天一次）</option>
+          <option value="manual">仅手动，点「重新检查」才查</option>
+          <option value="off">关闭</option>
+        </select>
+        <div class="hint">顶部徽标会比对 GitHub 上的最新 release；内网或代理不通时选「关闭」，
+          徽标只显示当前版本，不再发请求</div>
       </div>
     </div>
     <div class="svc-row">
@@ -919,7 +945,8 @@ function fill(cfg, status){
   }
 
   $("hourly_hours").value = cfg.hourly_hours ?? 6;
-  $("forecast_days").value = String(cfg.forecast_days ?? 7);
+  $("forecast_days").value = String(cfg.forecast_days ?? 5);
+  $("update_check").value = cfg.update_check || "auto";
   $("alert_min_level").value = cfg.alert_min_level || "蓝色";
   $("alert_resend_hours").value = cfg.alert_resend_hours ?? 6;
   $("alert_types").value = (cfg.alert_types || []).join(",");
@@ -1032,7 +1059,8 @@ function collect(){
     location_name: $("location_name").value.trim(),
     location_admin: $("location_admin").value,
     hourly_hours: Number($("hourly_hours").value || 6),
-    forecast_days: Number($("forecast_days").value || 7),
+    forecast_days: Number($("forecast_days").value || 5),
+    update_check: $("update_check").value || "auto",
     indices_types: indices.join(","),
     alert_min_level: $("alert_min_level").value,
     alert_resend_hours: Number($("alert_resend_hours").value || 6),
@@ -1430,6 +1458,8 @@ document.addEventListener("change", e => {
   if (el.closest("#authPwSection")) return;                      // 改密走专用接口
   if (el.id === "locQ" || el.id === "schedTime") return;         // 搜索框 / 时间选择器
   queueSave();
+  // 检查更新方式存盘后让顶部徽标按新设置重画（关闭后不该还挂着红字）
+  if (el.id === "update_check") setTimeout(() => document.dispatchEvent(new Event("ver:reload")), 900);
 });
 
 $("testBtn").onclick = async () => {
@@ -1568,7 +1598,7 @@ function renderKey(key){
     if (key.created_at) bits.push("生成于 " + key.created_at);
     if (!key.public_key) bits.push("公钥缺失，重启服务会自动按私钥补齐");
   } else {
-    bits.push("未配置私钥时走 Open-Meteo，拿不到官方预警");
+    bits.push("没有私钥就取不到天气，首页会提示去配置");
   }
   $("keyMeta").textContent = bits.join(" · ");
 }

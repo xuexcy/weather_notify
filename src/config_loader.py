@@ -166,6 +166,13 @@ def _new_channel(ch_type: str, src: dict | None = None) -> dict:
 def _push() -> dict:
     return {"channels": []}
 
+# 设置页可选的逐日预报展示天数；和风只给 3/7/10/15/30 档位，取数时向上归位
+DAILY_DAYS = (1, 2, 3, 4, 5, 6, 7, 10, 15, 30)
+
+# 版本徽标怎么查 GitHub：auto 打开页面时自动查（结果缓存 24 小时）；
+# manual 只在点「重新检查」时查；off 完全不联网，只显示当前版本
+UPDATE_CHECK_MODES = ("auto", "manual", "off")
+
 DEFAULTS = {
     "server": {"host": DEFAULT_HOST, "port": DEFAULT_PORT},
     "auth": {"enabled": AUTH_ENABLED, "password_hash": "", "salt": "",
@@ -183,7 +190,8 @@ DEFAULTS = {
     "location_ip": "",
     "location_note": "",
     "hourly_hours": 6,
-    "forecast_days": 7,         # 逐日预报天数（和风档位 3/7/10/15/30）
+    "forecast_days": 5,         # 逐日预报展示天数（1-7/10/15/30，取数按 3/7/10/15/30 向上归位）
+    "update_check": "auto",     # 版本徽标：auto / manual / off
     "indices_types": "3,5,9",  # 穿衣/紫外线/感冒
     "alert_min_level": "蓝色",  # 白色/蓝色/黄色/橙色/红色
     "alert_types": [],          # 空 = 全部类型
@@ -219,7 +227,8 @@ TEMPLATE = {
     "location_ip": "",
     "location_note": "",
     "hourly_hours": 6,
-    "forecast_days": 7,
+    "forecast_days": 5,
+    "update_check": "auto",
     "indices_types": "3,5,9",
     "alert_min_level": "蓝色",
     "alert_types": [],
@@ -227,6 +236,34 @@ TEMPLATE = {
     "push": _push(),
     "message": dict(MESSAGE_DEFAULTS),
 }
+
+
+def daily_days(cfg: dict | None = None) -> int:
+    """逐日预报展示天数。
+
+    取值来自设置页选项；老配置或手改的数字不在档位里时向上归到最近一档
+    （8 天 → 10 天），脏值回落到默认值。
+    """
+    raw = (cfg or {}).get("forecast_days", DEFAULTS["forecast_days"])
+    try:
+        n = int(float(raw))
+    except (TypeError, ValueError):
+        return DEFAULTS["forecast_days"]
+    for d in DAILY_DAYS:
+        if n <= d:
+            return d
+    return DAILY_DAYS[-1]
+
+
+def update_check_mode(cfg: dict | None = None) -> str:
+    """版本徽标的检查方式：auto / manual / off。
+
+    手改出来的脏值（"yes"、空串）一律当默认的 auto，别让一个拼错的值
+    把更新检测整个关掉。
+    """
+    raw = (cfg or {}).get("update_check", DEFAULTS["update_check"])
+    text = str(raw or "").strip().lower()
+    return text if text in UPDATE_CHECK_MODES else DEFAULTS["update_check"]
 
 
 def merged(user: dict) -> dict:
@@ -806,7 +843,7 @@ def _crypto():
     """按需导入 cryptography。
 
     放在函数里而不是模块顶层：没装这个库时（或旧环境）读配置、走
-    Open-Meteo 兜底都不受影响，只有真正要生成/解析密钥时才报错。
+    首页取数与版本徽标都不受影响，只有真正要生成/解析密钥时才报错。
     """
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
