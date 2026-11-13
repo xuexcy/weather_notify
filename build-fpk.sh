@@ -9,8 +9,9 @@
 #
 # 两个架构差在哪：
 #   - manifest 的 platform 字段（x86 / arm，fnOS 不允许写多个值，所以必须分两个包）
-#   - app/libs 里的第三方依赖：x86 包直接本机 pip 安装；ARM 包用 pip 交叉下载
-#     aarch64 的 manylinux wheel（纯下载解压，不编译，所以在 x86 机器上也能出 ARM 包）
+#   - app/libs 里的第三方依赖：两个架构都用 pip 交叉下载对应平台的 manylinux wheel
+#     （纯下载解压，不编译，所以 x86 / arm64 机器上都能出双架构包）
+#   - 产物按架构带标识：dist/weathernotify_<版本>_x86.fpk 与 dist/weathernotify_<版本>_arm.fpk
 #
 # 可选环境变量：
 #   SKIP_PACK=1   只组装目录、不调用 fnpack（检查产物结构用）
@@ -108,7 +109,7 @@ build_one() {
     local arch="$1" ver="$2"
     local platform suffix stage
     if [ "${arch}" = "x86" ]; then
-        platform="x86"; suffix=""
+        platform="x86"; suffix="_x86"
     else
         platform="arm"; suffix="_arm"
     fi

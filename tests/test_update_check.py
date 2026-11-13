@@ -341,7 +341,7 @@ class FetchLatestTest(TempConfCase):
 
     def test_fpk_assets(self):
         payload = {"tag_name": "v0.2.0", "assets": [
-            {"name": "weathernotify_0.2.0.fpk", "size": 6100000,
+            {"name": "weathernotify_0.2.0_x86.fpk", "size": 6100000,
              "browser_download_url": "https://example.com/a.fpk"},
             {"name": "weathernotify_0.2.0_arm.fpk", "size": 6000000,
              "browser_download_url": "https://example.com/b.fpk"},
@@ -353,9 +353,18 @@ class FetchLatestTest(TempConfCase):
                                return_value=self._resp(200, payload)):
             release = update_check.fetch_latest()
         self.assertEqual([a["name"] for a in release.assets],
-                         ["weathernotify_0.2.0.fpk", "weathernotify_0.2.0_arm.fpk"])
+                         ["weathernotify_0.2.0_x86.fpk", "weathernotify_0.2.0_arm.fpk"])
         self.assertEqual([a["arch"] for a in release.assets], ["x86", "arm"])
         self.assertEqual(release.assets[0]["size"], 6100000)
+
+    def test_legacy_name_without_suffix_is_x86(self):
+        payload = {"tag_name": "v0.1.0", "assets": [
+            {"name": "weathernotify_0.1.0.fpk", "size": 1,
+             "browser_download_url": "https://example.com/old.fpk"}]}
+        with mock.patch.object(self.requests, "get",
+                               return_value=self._resp(200, payload)):
+            release = update_check.fetch_latest()
+        self.assertEqual(release.assets[0]["arch"], "x86")
 
     def test_404(self):
         with mock.patch.object(self.requests, "get", return_value=self._resp(404)):

@@ -45,7 +45,7 @@
   "error": null,
   "release_url": "https://github.com/xuexcy/weather_notify/releases/tag/v0.2.0",
   "assets": [
-    {"name": "weathernotify_0.2.0.fpk", "url": "https://…/weathernotify_0.2.0.fpk",
+    {"name": "weathernotify_0.2.0_x86.fpk", "url": "https://…/weathernotify_0.2.0_x86.fpk",
      "size": 6100000, "arch": "x86"},
     {"name": "weathernotify_0.2.0_arm.fpk", "url": "https://…/weathernotify_0.2.0_arm.fpk",
      "size": 6000000, "arch": "arm"}

@@ -157,8 +157,10 @@ def _assets(data: dict) -> list:
             size = int(item.get("size") or 0)
         except (TypeError, ValueError):
             size = 0
+        # 构建脚本产出的包名带架构标识：_x86 / _arm；老版本没有标识的一律按 x86
+        lower = name.lower()
         out.append({"name": name, "url": url, "size": size,
-                    "arch": "arm" if "_arm" in name.lower() else "x86"})
+                    "arch": "arm" if "_arm" in lower else "x86"})
     return out[:6]
 
 

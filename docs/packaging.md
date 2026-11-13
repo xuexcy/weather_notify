@@ -72,7 +72,7 @@ cd /vol2/1000/agent沙箱/weather-notify
 
 | 架构 | 文件名 | manifest |
 |---|---|---|
-| x86_64 | `dist/weathernotify_<版本>.fpk` | `platform = x86` |
+| x86_64 | `dist/weathernotify_<版本>_x86.fpk` | `platform = x86` |
 | ARM64 | `dist/weathernotify_<版本>_arm.fpk` | `platform = arm` |
 
 两个包各自约 5.7–5.8 MB，`stage-x86/`、`stage-arm/` 是中间目录，可随时删。
@@ -103,7 +103,7 @@ Mac 上想检查组装结果可以 `SKIP_PACK=1 ./build-fpk.sh`（不调用 fnpa
 ## 安装 / 升级 / 卸载
 
 - **安装**：应用中心 → 设置 → 手动安装 → 选 fpk。**先看设备架构**：
-  Intel/AMD 的 NAS 用 `weathernotify_<版本>.fpk`，RK3588/树莓派等 ARM 设备用
+  Intel/AMD 的 NAS 用 `weathernotify_<版本>_x86.fpk`，RK3588/树莓派等 ARM 设备用
   `weathernotify_<版本>_arm.fpk`（选错会被应用中心以架构不符拒绝）。
   只有端口被**其他程序**占着时安装才会中止（提示里会打出占用进程）。
 - **升级**：应用中心里直接更新（或再手动装一次高版本 fpk）。流程是
