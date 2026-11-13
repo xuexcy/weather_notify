@@ -18,6 +18,7 @@
 - **通道用途可选**：每个通道能勾「正式」「测试」（可同时勾），调格式不打扰正式群
 - **设置页访问密码**：PBKDF2 密码哈希 + HMAC 签名 cookie，首页天气仍可公开查看
 - **消息模板可改**：日常播报与天气预警各有标题 / 正文模板，用 `{变量}` 拼装
+- **逐日预报天数可选**：设置页 1/2/3/4/5/6/7/10/15/30 天，取数按和风档位向上归位
 - **私密数据隔离**：凭据与私钥全在 `conf/`（已 gitignore，权限 600）
 - **首次启动按公网 IP 自动定位城市**，无需自己查 LocationID
 
@@ -92,10 +93,10 @@ python3 -m venv .venv
 ```
 src/          后端代码（唯一进程 server.py + 天气/推送/配置等模块）
 web/          前端三页：首页、登录、设置（共享 style.css）
-tests/        单元测试（标准库 unittest，182 例）
+tests/        单元测试（标准库 unittest，237 例）
 docs/         实现细节与参考文档
 fpk/          飞牛 fnOS 应用包骨架（manifest、生命周期脚本、图标）
-build-fpk.sh  打包脚本：./build-fpk.sh [版本号] → dist/*.fpk
+build-fpk.sh  打包脚本：./build-fpk.sh [版本号] → dist/weathernotify_<版本>_x86.fpk / _arm.fpk
 conf/         本地配置与私钥（gitignore，不入库）
 logs/         运行日志（gitignore）
 ```
@@ -109,10 +110,12 @@ logs/         运行日志（gitignore）
 | `src/geoip.py` | 公网 IP 定位（多源并发 + 中文名优先 + 出口 IP 警示） |
 | `src/formatter.py` | 消息组装：模板占位符 + md / 纯文本两种风格，预警置顶 |
 | `src/pusher.py` | 企业微信 webhook + MagicPush |
+| `src/update_check.py` | 版本检测：读打包 manifest、查 GitHub 最新 release、24 小时缓存 |
 | `src/config_loader.py` | 配置读取 / 合并 / 校验 / 迁移、通道增删、定位写盘 |
 | `web/index.html` | 首页（天气面板） |
 | `web/settings.html` | 设置页 |
 | `web/login.html` | 登录页（首次设密码 / 输入密码） |
+| `web/version.js` | 顶栏版本徽标与 fpk 下载面板（首页 / 设置页共用） |
 
 ## 文档
 
